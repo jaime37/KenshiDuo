@@ -102,3 +102,24 @@ comma-decimal locales (es-ES, de-DE, ...) and en-US.
 The full scenario suite (`scripts\run_test.ps1`, `scripts\dev_cycle.ps1`,
 `scripts\deploy.cmd`) needs a local Kenshi 1.0.65 install and is out of scope
 for a build check.
+
+## 5. Game harness install dirs
+
+The two-client game harness drives two local Kenshi installs: the HOST install
+(the Steam copy) and a separate JOIN install (created by
+`scripts\setup_join_install.cmd`). Their paths resolve in ONE place per
+language - `scripts\CoopHarness.psm1` (`Get-CoopKenshiDir` /
+`Get-CoopKenshiJoinDir`) for PowerShell and `scripts\_kenshi_dirs.cmd` for
+batch - and either can be overridden with an environment variable, so the
+harness also runs on machines where Kenshi lives elsewhere:
+
+| Env var | Default when unset |
+|---|---|
+| `KENSHICOOP_KENSHI_DIR` | `C:\Program Files (x86)\Steam\steamapps\common\Kenshi` |
+| `KENSHICOOP_KENSHI_JOIN_DIR` | `%USERPROFILE%\Kenshi-Join` |
+
+Set them before calling any harness script (`set KENSHICOOP_KENSHI_DIR=...` in
+cmd, `$env:KENSHICOOP_KENSHI_DIR = "..."` in PowerShell). Unset, every script
+behaves exactly as before; every script parameter (`-HostDir` / `-JoinDir`,
+the `deploy.cmd` / `setup_join_install.cmd` / `sync_save.cmd` arguments) still
+wins over the env vars.
