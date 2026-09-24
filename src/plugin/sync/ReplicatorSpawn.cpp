@@ -1305,7 +1305,18 @@ void Replicator::rekeyPeerBody(GameWorld* gw, const Key& oldK, const Key& newK,
         // into our squad), insertPeerMember pins the actual local hand OWNED so
         // publishOwned streams it and the local player controls it. Idempotent +
         // tab-aware, so a squad-move re-containers an existing member too.
-        insertPeerMember(gw, c, newK, tag, destOwned);
+        // Don't re-join a dead body to the player squad: joinPlayerSquadAt
+        // triggers the squad-portrait refresh, and a portrait for a dead/re-keyed
+        // hand derefs a null PortraitData (MainBarGUI crash on death). The corpse
+        // stays down via the death latch on targets_[newK]. KO'd members still insert.
+        if (carryDeath) {
+            char sk[176]; _snprintf(sk, sizeof(sk) - 1,
+                "[%s] MEMBER skip new=%u,%u,%u,%u,%u (death-latched corpse)",
+                (tag ? tag : "squad"), newK.t, newK.c, newK.cs, newK.i, newK.s);
+            sk[sizeof(sk) - 1] = '\0'; coop::logLine(sk);
+        } else {
+            insertPeerMember(gw, c, newK, tag, destOwned);
+        }
         if (destOwned) {
             // Control hand-off: drop every residual DRIVE artifact so publishOwned
             // streams the body immediately and applyTargets never fights our own
@@ -1335,6 +1346,15 @@ void Replicator::rekeyPeerBody(GameWorld* gw, const Key& oldK, const Key& newK,
                 (tag ? tag : "squad"), newK.t, newK.c, newK.cs, newK.i, newK.s);
             cf[sizeof(cf) - 1] = '\0'; coop::logLine(cf);
         }
+    } else if (carryDeath) {
+        // Dead body with no local copy: don't force-REQ/mint. Minting spawns a
+        // fresh unnamed corpse (the "Name" portrait that appears after a death,
+        // since proxy names aren't replicated). Suppress any in-flight reply mint.
+        rekeyedOld_[newK] = nowMs();
+        char fb[176]; _snprintf(fb, sizeof(fb) - 1,
+            "[%s] REKEY-DEAD skip-mint new=%u,%u,%u,%u,%u",
+            (tag ? tag : "squad"), newK.t, newK.c, newK.cs, newK.i, newK.s);
+        fb[sizeof(fb) - 1] = '\0'; coop::logLine(fb);
     } else {
         // ok=0: no local body at the OLD hand and no proxy to migrate. The
         // recruit/move fired while this hand was OUTSIDE our interest (the
