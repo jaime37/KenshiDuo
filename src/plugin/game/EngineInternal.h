@@ -416,6 +416,7 @@ extern RagdollModeFn   g_ragdollModeFn;
 extern MoveRestoreFn   g_moveRestoreFn;
 extern MedFloatFn      g_knockoutFn;
 extern MedFloatFn      g_knockoutForceFn;
+extern bool            g_suppressKnockoutReport;
 extern MedAmputateFn     g_medAmputateFn;
 extern MedCrushLimbFn    g_medCrushLimbFn;
 extern MedSetRobotLimbFn g_medSetRobotLimbFn;

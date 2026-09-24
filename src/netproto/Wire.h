@@ -25,7 +25,7 @@ typedef double         f64;
 // this header stays a definition file. When you bump PROTOCOL_VERSION, add the
 // matching entry at the bottom of that doc. The version is checked at handshake
 // and a mismatch is rejected (no back-compat).
-const u16 PROTOCOL_VERSION = 63;
+const u16 PROTOCOL_VERSION = 64;
 
 // Packet type tags (first byte of every packet).
 enum PacketType {
@@ -968,6 +968,10 @@ struct TreatmentPacket {
 // (blood + a frontal flesh wound), then the medical sim + vitals stream mirror
 // the result back. Idempotent-ish per hitId (log correlation only; the amounts
 // are deltas, so a dropped/duped datagram would mis-total - hence RELIABLE).
+enum CombatHitFlags {
+    COMBAT_HIT_KNOCKOUT = 1 << 0
+};
+
 struct CombatHitPacket {
     u8  type;    // = PKT_COMBAT_HIT
     u32 ownerId; // network player id of the sender (the ATTACKER's machine)
@@ -980,6 +984,8 @@ struct CombatHitPacket {
     u32 sSerial;
     f32 flesh;   // accumulated flesh damage to apply (frontal part)
     f32 blood;   // accumulated blood loss to apply
+    u8  flags;   // CombatHitFlags outcome bits
+    f32 koSkill;  // MedicalSystem::knockout(skill) input for KO duration
 };
 
 // Consensus game speed (pause/1x/2x/3x). As PKT_SPEED_REQ it carries one
