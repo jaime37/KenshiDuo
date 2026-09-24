@@ -321,6 +321,10 @@ void  markerDestroy(void* label);
 // too. Cheap (a pointer scan of the GUI's own label registry).
 bool  markerAlive(void* label);
 
+// True while any inventory/trade window is open (the engine UI holds Item
+// pointers). Inventory-sync must not free items during this window. SEH-guarded.
+bool  inventoryUiOpen();
+
 // ---- In-game co-op session panel ---------------------------------------------
 // Moved to EngineUi.h (Phase 5a domain split): CoopPanelState, CoopConnectFn,
 // CoopDisconnectFn, coopPanelTick, coopOverlayTick. The UI root (Plugin.cpp)
