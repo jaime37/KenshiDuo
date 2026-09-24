@@ -131,7 +131,10 @@ public:
     void queueMoneyDelta(const MoneyDeltaPacket& pkt);
     void queueFaction(const FactionPacket& pkt);
     void queueTime(const TimePacket& pkt);
+    // MAIN thread: queue a reliable Host-canonical baked-door state row.
     void queueDoor(const DoorPacket& pkt);
+    // MAIN thread: queue a reliable door request (protocol 57, Join -> Host).
+    void queueDoorIntent(const DoorIntentPacket& pkt);
     // MAIN thread: queue a reliable host-authoritative machine state row
     // (protocol 33). Change-gated + safety-resent by the caller.
     void queueProd(const ProdPacket& pkt);
@@ -306,6 +309,7 @@ private:
     std::vector<FactionPacket>   outFaction_;
     std::vector<TimePacket>      outTime_;
     std::vector<DoorPacket>      outDoor_;
+    std::vector<DoorIntentPacket> outDoorIntent_;
     // Reliable machine state rows (protocol 33). Guarded by outCs_.
     std::vector<ProdPacket>      outProd_;
     std::vector<ProdIntentPacket> outProdIntent_;
