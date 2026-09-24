@@ -31,9 +31,7 @@
 #include "../plugin/core/SteamId.h"
 #include "../plugin/core/WorkPose.h"
 #include "../plugin/core/DeathLatch.h"
-#include "../plugin/core/HostIntent.h" // protocol 59 reusable intent/ack policy
 #include "../plugin/core/Inbound.h" // Phase 0 queue-lifecycle fixes (header-only)
-#include "../plugin/core/HostIntent.h" // protocol 57+ reusable intent/ack policy
 #include "../plugin/game/EngineFaults.h" // Phase 5c: fault throttle (pure inline)
 #include "../plugin/game/EngineCaps.h"   // Phase 5d: capability registry (pure inline)
 #include "../plugin/game/ToastTimer.h"   // ephemeral connect/disconnect toast clock

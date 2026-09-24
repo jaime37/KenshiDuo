@@ -25,7 +25,7 @@
 #include "Interp.h"
 #include "../../netproto/Wire.h"
 #include "../core/Inbound.h"
-#include "../core/HostIntent.h"
+#include "../../netproto/HostIntent.h"
 #include "../net/NetLink.h"
 #include "SyncContext.h" // Phase 6: per-tick channel call environment
 #include "SyncTuning.h"  // Phase 6d: owned per-channel send-cadence tunables

@@ -12,7 +12,7 @@
 
 #include "ReplicatorUtil.h"
 #include "../core/BuildOwnership.h"
-#include "../core/HostIntent.h"
+#include "../../netproto/HostIntent.h"
 #include "../core/StaleGuard.h"
 #include "../core/ResearchUnion.h" // protocol 38 symmetric grow-only union
 
