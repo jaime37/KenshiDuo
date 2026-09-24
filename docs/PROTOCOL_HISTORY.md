@@ -9,10 +9,11 @@ so parallel integration lines do not collide.
 |---|---|
 | 55 | Base fork point: upstream KenshiCoop v0.51 (`5a761e19`). |
 | 56 | PR #70 (jayceslesar): save-native ground pickup notice (`PKT_NATIVE_TAKEN`), fixes upstream #44. |
+| 57 | PR #75 (BorjaAres): host-validated production recipe intents (`PKT_PROD_INTENT` = 50; tag 49 was taken by `PKT_NATIVE_TAKEN`). |
 
 ## Planned (reserved, not yet merged)
 
 | Version | Change |
 |---|---|
-| 57–61 | BorjaAres PRs #75, #76, #78, #79, #80 (one bump each, in that order). |
+| 58–61 | BorjaAres PRs #76, #78, #79, #80 (one bump each, in that order). |
 | 62–65 | July PRs #18, #28, #35, #36 (one bump each, in that order). |

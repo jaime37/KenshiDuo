@@ -31,6 +31,7 @@
 #include "../plugin/core/WorkPose.h"
 #include "../plugin/core/DeathLatch.h"
 #include "../plugin/core/Inbound.h" // Phase 0 queue-lifecycle fixes (header-only)
+#include "../plugin/core/HostIntent.h" // protocol 56 reusable intent/ack policy
 #include "../plugin/game/EngineFaults.h" // Phase 5c: fault throttle (pure inline)
 #include "../plugin/game/EngineCaps.h"   // Phase 5d: capability registry (pure inline)
 #include "../plugin/sync/ChangeGate.h"   // Phase 6: change-gated send/accept policy
@@ -115,7 +116,8 @@ static void testSizes() {
     CHECK_EQ("sizeof(LoadGoPacket)",            sizeof(LoadGoPacket),            61);
     CHECK_EQ("sizeof(LoadReqPacket)",           sizeof(LoadReqPacket),           57);
     CHECK_EQ("sizeof(LoadNackPacket)",          sizeof(LoadNackPacket),          61);
-    CHECK_EQ("sizeof(ProdPacket)",              sizeof(ProdPacket),              109);
+    CHECK_EQ("sizeof(ProdPacket)",              sizeof(ProdPacket),              121);
+    CHECK_EQ("sizeof(ProdIntentPacket)",        sizeof(ProdIntentPacket),         82);
     CHECK_EQ("sizeof(NpcCensusHeader)",         sizeof(NpcCensusHeader),         7); // v35: census
     CHECK_EQ("sizeof(ResearchPacket)",          sizeof(ResearchPacket),          57); // v37: research
     CHECK_EQ("sizeof(DeedPacket)",              sizeof(DeedPacket),              78); // v54: deeds
@@ -312,8 +314,8 @@ static void testSizes() {
     CHECK_EQ("EVT_SQUAD_MOVE id", (int)EVT_SQUAD_MOVE, 11);
     CHECK("EVT_SQUAD_MOVE distinct", EVT_SQUAD_MOVE != EVT_RECRUIT &&
           EVT_SQUAD_MOVE != EVT_NONE && EVT_SQUAD_MOVE != EVT_EXIT_FURNITURE);
-    CHECK_EQ("PROTOCOL_VERSION (v56: save-native pickup notice)",
-             (int)PROTOCOL_VERSION, 56);
+    CHECK_EQ("PROTOCOL_VERSION (v57: host-validated production intents)",
+             (int)PROTOCOL_VERSION, 57);
 
     // Protocol 56: save-native pickup notice. The ownership filter (protocol 55)
     // keeps owned town/shop items out of the stream, so their pickup needs its own
@@ -337,6 +339,11 @@ static void testSizes() {
         CHECK("native-taken carries the position checksum",
               nt.x < -51174.0f && nt.y > 1594.0f && nt.z > 2718.0f);
     }
+    // Protocol 57: production recipe intents. Tag 49 was already taken by
+    // PKT_NATIVE_TAKEN (protocol 56), so the intent rides tag 50.
+    CHECK("PKT_PROD_INTENT distinct", (int)PKT_PROD_INTENT == 50 &&
+          PKT_PROD_INTENT != PKT_PROD && PKT_PROD_INTENT != PKT_FIXTURE &&
+          PKT_PROD_INTENT != PKT_NATIVE_TAKEN);
 
     // Protocol 52: the shared money pool. The two players spend from ONE wallet,
     // so the join reports CHANGES and the host the authoritative TOTAL - swap
@@ -518,6 +525,7 @@ static void testRoundTrips() {
     roundTrip<LoadReqPacket>("LoadReqPacket", (u8)PKT_LOAD_REQ);
     roundTrip<LoadNackPacket>("LoadNackPacket", (u8)PKT_LOAD_NACK);
     roundTrip<ProdPacket>("ProdPacket", (u8)PKT_PROD);
+    roundTrip<ProdIntentPacket>("ProdIntentPacket", (u8)PKT_PROD_INTENT);
     roundTrip<ResearchPacket>("ResearchPacket", (u8)PKT_RESEARCH);
     roundTrip<DeedPacket>("DeedPacket", (u8)PKT_DEED);
     roundTrip<FixturePacket>("FixturePacket", (u8)PKT_FIXTURE);
@@ -1448,6 +1456,7 @@ static void testFlushWorldStateContract() {
     TimePacket      ti;  std::memset(&ti,  0, sizeof(ti));
     DoorPacket      dp;  std::memset(&dp,  0, sizeof(dp));
     ProdPacket      pr;  std::memset(&pr,  0, sizeof(pr));
+    ProdIntentPacket pri; std::memset(&pri, 0, sizeof(pri));
     ResearchPacket  rp;  std::memset(&rp,  0, sizeof(rp));
     DeedPacket      de;  std::memset(&de,  0, sizeof(de));
     FixturePacket   fx;  std::memset(&fx,  0, sizeof(fx));
@@ -1471,7 +1480,7 @@ static void testFlushWorldStateContract() {
     LoadReqPacket   lrq; std::memset(&lrq, 0, sizeof(lrq));
     LoadNackPacket  lnk; std::memset(&lnk, 0, sizeof(lnk));
 
-    // --- Push one sentinel into every WORLD-STATE queue (34).
+    // --- Push one sentinel into every WORLD-STATE queue (35).
     in.pushEntity(1, 0, e);
     in.pushEvent(1, ev);
     in.pushInv(1, 0, cKey, 0, 0);
@@ -1493,6 +1502,7 @@ static void testFlushWorldStateContract() {
     in.pushTime(1, ti);
     in.pushDoor(1, dp);
     in.pushProd(1, pr);
+    in.pushProdIntent(1, pri);
     in.pushResearch(1, rp);
     in.pushDeed(1, de);
     in.pushFixture(1, fx);
@@ -1546,6 +1556,7 @@ static void testFlushWorldStateContract() {
     WS_EMPTY("time",        InboundTime,        drainTime);
     WS_EMPTY("door",        InboundDoor,        drainDoor);
     WS_EMPTY("prod",        InboundProd,        drainProd);
+    WS_EMPTY("prodIntent",  InboundProdIntent,  drainProdIntents);
     WS_EMPTY("research",    InboundResearch,    drainResearch);
     WS_EMPTY("deed",        InboundDeed,        drainDeed);
     WS_EMPTY("fixture",     InboundFixture,     drainFixture);
@@ -1857,6 +1868,33 @@ static void testBuildOwnershipPolicy() {
           !deedMayPublishRawHand(/*sessionPlaced*/true));
 }
 
+// ---- 15. Reusable host-intent contract (protocol 57) ---------------------------
+static void testHostIntentPolicy() {
+    std::printf("== host-canonical intent policy ==\n");
+    CHECK("intent sequence starts at one", hostIntentIsNew(0u, 1u));
+    CHECK("intent duplicate is idempotent", !hostIntentIsNew(7u, 7u));
+    CHECK("intent older row is stale", !hostIntentIsNew(7u, 6u));
+    CHECK("intent newer row accepted", hostIntentIsNew(7u, 8u));
+    CHECK("intent zero is reserved", !hostIntentIsNew(0u, 0u));
+
+    CHECK("ack settles matching owner+seq",
+          hostIntentAckCovers(22u, 5u, 22u, 5u));
+    CHECK("later ack covers pending",
+          hostIntentAckCovers(22u, 5u, 22u, 6u));
+    CHECK("other owner's ack cannot settle",
+          !hostIntentAckCovers(22u, 5u, 23u, 99u));
+    CHECK("older ack cannot settle",
+          !hostIntentAckCovers(22u, 5u, 22u, 4u));
+    CHECK("no pending intent cannot settle",
+          !hostIntentAckCovers(22u, 0u, 22u, 9u));
+
+    CHECK("intent first send due", hostIntentRetryDue(1000ul, 0ul, 2000ul));
+    CHECK("intent retry held before deadline",
+          !hostIntentRetryDue(2999ul, 1000ul, 2000ul));
+    CHECK("intent retry due at deadline",
+          hostIntentRetryDue(3000ul, 1000ul, 2000ul));
+}
+
 int main() {
     std::printf("prototest: KenshiCoop wire/hash/interp unit layer (protocol v%u)\n",
                 (unsigned)PROTOCOL_VERSION);
@@ -1865,6 +1903,7 @@ int main() {
     testEngineFaults();
     testEngineCaps();
     testChangeGate();
+    testHostIntentPolicy();
     testRoundTrips();
     testFraming();
     testSaveCrc();
