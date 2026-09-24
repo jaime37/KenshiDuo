@@ -443,6 +443,71 @@ $adapterHasInternal = (Test-Path $adapter) -and `
     ((Select-String -Path $adapter -Pattern $internalIncludeRe).Count -gt 0)
 Check "adapter EngineInternal.h carries the game-internal prelude" $adapterHasInternal
 
+# ---- 6. install-dir single-resolution contract ---------------------------------
+# The two local Kenshi install dirs resolve in ONE place per language:
+# CoopHarness.psm1 (Get-CoopKenshiDir / Get-CoopKenshiJoinDir) for PowerShell
+# and scripts\_kenshi_dirs.cmd for batch, behind the KENSHICOOP_KENSHI_DIR /
+# KENSHICOOP_KENSHI_JOIN_DIR env vars. A hardcoded default anywhere else would
+# silently drift from the override, so this scans every harness script for the
+# default literals.
+Write-Host "== install-dir resolution contract =="
+
+# 6a. The PowerShell resolver honors the env override and falls back to the
+#     historical default when unset.
+$savedK = $env:KENSHICOOP_KENSHI_DIR
+$savedJ = $env:KENSHICOOP_KENSHI_JOIN_DIR
+$env:KENSHICOOP_KENSHI_DIR = "X:\fake\kenshi"
+$env:KENSHICOOP_KENSHI_JOIN_DIR = "Y:\fake\join"
+Check "host dir honors KENSHICOOP_KENSHI_DIR" ((Get-CoopKenshiDir) -eq "X:\fake\kenshi")
+Check "join dir honors KENSHICOOP_KENSHI_JOIN_DIR" ((Get-CoopKenshiJoinDir) -eq "Y:\fake\join")
+$env:KENSHICOOP_KENSHI_DIR = ""
+$env:KENSHICOOP_KENSHI_JOIN_DIR = ""
+Check "host dir falls back to the Steam default" ((Get-CoopKenshiDir) -like "*steamapps\common\Kenshi")
+Check "join dir falls back to *\Kenshi-Join" ((Get-CoopKenshiJoinDir) -like "*\Kenshi-Join")
+
+# 6b. The batch resolver (scripts\_kenshi_dirs.cmd) does the same, run for real.
+#     (/v:on + !VAR!: the vars are SET by the called script, so parse-time %VAR%
+#     expansion of the compound line would print the pre-call values.)
+$env:KENSHICOOP_KENSHI_DIR = "X:\fake\kenshi"
+$cmdOut = @(& cmd.exe /v:on /c "call `"$scriptsRoot\_kenshi_dirs.cmd`" >nul && echo !KENSHICOOP_KENSHI_DIR!&echo !KENSHICOOP_KENSHI_JOIN_DIR!")
+$env:KENSHICOOP_KENSHI_DIR = $savedK
+$env:KENSHICOOP_KENSHI_JOIN_DIR = $savedJ
+Check "cmd resolver honors the env override" ($cmdOut -contains "X:\fake\kenshi")
+Check "cmd resolver falls back to *\Kenshi-Join" ((@($cmdOut) | Where-Object { $_ -like "*\Kenshi-Join" }).Count -gt 0)
+
+# 6c. Literal scan: no OTHER script carries the default paths. Exempt:
+#   _kenshi_dirs.cmd / CoopHarness.psm1 - the single resolution points themselves
+#   start_kenshi.ps1       - shipped STANDALONE to the LAN machine by
+#                            setup_lan_host.ps1, so it cannot import the module
+#   friend_host/friend_join.ps1 - shipped in player kits without the module;
+#                            they PROBE several candidate Steam roots (discovery,
+#                            not a default)
+#   make_mod_kit.ps1         - its kit README template names the default Steam
+#                            path for END USERS on purpose (player-facing doc,
+#                            not a harness path resolution)
+$dirPatterns = @('steamapps\\common\\Kenshi', 'Kenshi-Join\\', '%USERPROFILE%\\Kenshi-Join')
+$dirExempt = @('CoopHarness.psm1', '_kenshi_dirs.cmd', 'start_kenshi.ps1',
+               'friend_host.ps1', 'friend_join.ps1', 'make_mod_kit.ps1')
+$dirHits = @()
+foreach ($f in (Get-ChildItem -Path $scriptsRoot -File |
+                Where-Object { @('.ps1', '.psm1', '.cmd') -contains $_.Extension })) {
+    if ($dirExempt -contains $f.Name) { continue }
+    foreach ($m in (Select-String -Path $f.FullName -Pattern $dirPatterns)) {
+        $dirHits += "$($f.Name) line $($m.LineNumber): $($m.Line.Trim())"
+    }
+}
+if ($dirHits.Count -gt 0) { $dirHits | ForEach-Object { Write-Host "      install-dir literal: $_" } }
+Check "no script outside the resolvers carries an install-dir literal" ($dirHits.Count -eq 0)
+
+# POSITIVE controls: the scan must see the defaults in the two resolution points
+# (otherwise the check above passes vacuously), and the regex must fire at all.
+Check "scanner sees the default in CoopHarness.psm1" `
+    ((Select-String -Path (Join-Path $scriptsRoot "CoopHarness.psm1") -Pattern $dirPatterns).Count -gt 0)
+Check "scanner sees the default in _kenshi_dirs.cmd" `
+    ((Select-String -Path (Join-Path $scriptsRoot "_kenshi_dirs.cmd") -Pattern $dirPatterns).Count -gt 0)
+Check "dir-literal scanner would flag a hardcoded default" `
+    ('set "K=C:\x\steamapps\common\Kenshi"' -match 'steamapps\\common\\Kenshi')
+
 # ---- cleanup ------------------------------------------------------------------
 Remove-Item -Path $tmpH, $tmpJ -Force -ErrorAction SilentlyContinue
 Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue

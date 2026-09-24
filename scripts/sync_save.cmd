@@ -9,13 +9,16 @@ REM   scripts\sync_save.cmd ["C:\path\to\source Kenshi"] ["C:\path\to\Kenshi-Joi
 REM
 REM Run this BEFORE launching, any time you've made/updated the save you want to
 REM co-op on. Close both Kenshi instances first so save files aren't mid-write.
+REM Defaults come from scripts\_kenshi_dirs.cmd (override via the
+REM KENSHICOOP_KENSHI_DIR / KENSHICOOP_KENSHI_JOIN_DIR env vars).
 setlocal
+call "%~dp0_kenshi_dirs.cmd"
 
 set "SRC=%~1"
-if "%SRC%"=="" set "SRC=C:\Program Files (x86)\Steam\steamapps\common\Kenshi"
+if "%SRC%"=="" set "SRC=%KENSHICOOP_KENSHI_DIR%"
 
 set "DST=%~2"
-if "%DST%"=="" set "DST=%USERPROFILE%\Kenshi-Join"
+if "%DST%"=="" set "DST=%KENSHICOOP_KENSHI_JOIN_DIR%"
 
 if not exist "%SRC%\save" (
     echo ERROR: no save folder at "%SRC%\save".

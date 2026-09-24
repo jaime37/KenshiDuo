@@ -36,7 +36,9 @@ param(
     # Save to load (defaults from the scenario manifest; must match the kit's).
     [string]$Save = "",
     [int]$Port = 27800,
-    [string]$JoinDir = "$env:USERPROFILE\Kenshi-Join",
+    # Join install dir. Empty -> KENSHICOOP_KENSHI_JOIN_DIR env override, else
+    # the harness default (CoopHarness.psm1).
+    [string]$JoinDir = "",
     [switch]$SkipBuild,
     [int]$FreePlayMinutes = 0
 )
@@ -56,6 +58,8 @@ $useSteam = ($HostSteamId -ne "")
 if (-not $useSteam -and $HostIp -eq "") { throw "Pass -HostIp <ip> (UDP) or -HostSteamId <steamid64> (Steam P2P)." }
 
 Import-Module (Join-Path $scriptDir "CoopOracles.psm1") -Force
+Import-Module (Join-Path $scriptDir "CoopHarness.psm1") -Force
+if ($JoinDir -eq "") { $JoinDir = Get-CoopKenshiJoinDir }
 $manifest = Get-ScenarioManifest
 
 $isFree = ($Scenario -eq "free" -or $Scenario -eq "")

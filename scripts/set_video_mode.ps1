@@ -22,11 +22,17 @@
 param(
     [Parameter(Mandatory = $true)][int]$Width,
     [Parameter(Mandatory = $true)][int]$Height,
-    [string]$HostDir = "C:\Program Files (x86)\Steam\steamapps\common\Kenshi",
-    [string]$JoinDir = "$env:USERPROFILE\Kenshi-Join"
+    # Install dirs. Empty -> KENSHICOOP_KENSHI_DIR / KENSHICOOP_KENSHI_JOIN_DIR
+    # env override, else the harness defaults (CoopHarness.psm1).
+    [string]$HostDir = "",
+    [string]$JoinDir = ""
 )
 
 $ErrorActionPreference = "Stop"
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Import-Module (Join-Path $scriptDir "CoopHarness.psm1") -Force
+if ($HostDir -eq "") { $HostDir = Get-CoopKenshiDir }
+if ($JoinDir -eq "") { $JoinDir = Get-CoopKenshiJoinDir }
 
 foreach ($dir in @($HostDir, $JoinDir)) {
     $cfg = Join-Path $dir "kenshi.cfg"

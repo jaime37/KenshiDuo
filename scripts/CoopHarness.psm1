@@ -174,6 +174,31 @@ function Set-CoopDiagEnv {
     return $applied
 }
 
+# Install dirs of the two local Kenshi installs the harness drives. SINGLE
+# resolution point for every script: the defaults live here (and only here),
+# and either dir can be overridden with an env var without touching a script.
+# Unset env var = exactly the historical default, so an unconfigured machine
+# behaves as before.
+function Get-CoopKenshiDir {
+    <#
+    .SYNOPSIS
+      Host-side Kenshi install dir: $env:KENSHICOOP_KENSHI_DIR, else the
+      default Steam install path.
+    #>
+    if ($env:KENSHICOOP_KENSHI_DIR) { return $env:KENSHICOOP_KENSHI_DIR }
+    return "C:\Program Files (x86)\Steam\steamapps\common\Kenshi"
+}
+
+function Get-CoopKenshiJoinDir {
+    <#
+    .SYNOPSIS
+      Join-side Kenshi install dir: $env:KENSHICOOP_KENSHI_JOIN_DIR, else
+      "$env:USERPROFILE\Kenshi-Join".
+    #>
+    if ($env:KENSHICOOP_KENSHI_JOIN_DIR) { return $env:KENSHICOOP_KENSHI_JOIN_DIR }
+    return (Join-Path $env:USERPROFILE "Kenshi-Join")
+}
+
 function Stop-CoopKenshi {
     <#
     .SYNOPSIS
@@ -188,4 +213,4 @@ function Stop-CoopKenshi {
     return $stale.Count
 }
 
-Export-ModuleMember -Function Get-CoopDiagEnvKeys, Set-CoopDiagEnv, Stop-CoopKenshi
+Export-ModuleMember -Function Get-CoopDiagEnvKeys, Set-CoopDiagEnv, Stop-CoopKenshi, Get-CoopKenshiDir, Get-CoopKenshiJoinDir

@@ -32,8 +32,10 @@ param(
     [int]$Port = 27800,
     [string]$Wan = "bad",
     [switch]$SkipBuild,
-    [string]$HostDir = "C:\Program Files (x86)\Steam\steamapps\common\Kenshi",
-    [string]$JoinDir = "$env:USERPROFILE\Kenshi-Join"
+    # Install dirs. Empty -> KENSHICOOP_KENSHI_DIR / KENSHICOOP_KENSHI_JOIN_DIR
+    # env override, else the harness defaults (CoopHarness.psm1).
+    [string]$HostDir = "",
+    [string]$JoinDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,6 +43,9 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot  = Split-Path -Parent $scriptDir
 
 Import-Module (Join-Path $scriptDir "CoopOracles.psm1") -Force
+Import-Module (Join-Path $scriptDir "CoopHarness.psm1") -Force
+if ($HostDir -eq "") { $HostDir = Get-CoopKenshiDir }
+if ($JoinDir -eq "") { $JoinDir = Get-CoopKenshiJoinDir }
 $manifest = Get-ScenarioManifest
 if ($Save -eq "" -and $manifest.Scenarios.ContainsKey($Scenario)) {
     $Save = $manifest.Scenarios[$Scenario].Save

@@ -40,6 +40,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot  = Split-Path -Parent $scriptDir
 
 Import-Module (Join-Path $scriptDir "CoopOracles.psm1") -Force
+Import-Module (Join-Path $scriptDir "CoopHarness.psm1") -Force
 
 # ---- Config -------------------------------------------------------------------
 $cfgPath = Join-Path $scriptDir "lan.config.json"
@@ -91,7 +92,7 @@ Write-Host "  runner scripts: pushed -> $($cfg.dropDir)"
 # ---- 3. Mod deploy --------------------------------------------------------------------
 $dll  = Join-Path $repoRoot "src\plugin\x64\Harness\KenshiCoop.dll"
 $json = Join-Path $repoRoot "dist\mods\KenshiCoop\RE_Kenshi.json"
-$mod  = "C:\Program Files (x86)\Steam\steamapps\common\Kenshi\mods\KenshiCoop\KenshiCoop.mod"
+$mod  = Join-Path (Get-CoopKenshiDir) "mods\KenshiCoop\KenshiCoop.mod"
 if (-not (Test-Path $dll)) { throw "Build the plugin first (scripts\build_plugin.cmd): $dll" }
 $modDirFwd = "$($cfg.kenshiDir -replace '\\', '/')/mods/KenshiCoop"
 [void](Invoke-LanSsh "mkdir `"$($cfg.kenshiDir)\mods\KenshiCoop`" 2>nul & echo OK")

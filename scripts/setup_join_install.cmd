@@ -5,19 +5,21 @@ REM
 REM Usage:
 REM   scripts\setup_join_install.cmd ["C:\path\to\source Kenshi"] ["C:\path\to\Kenshi-Join"]
 REM
-REM Defaults:
+REM Defaults (see scripts\_kenshi_dirs.cmd; override via the
+REM KENSHICOOP_KENSHI_DIR / KENSHICOOP_KENSHI_JOIN_DIR env vars):
 REM   source = Steam install
-REM   dest   = %USERPROFILE%\Kenshi-Join   (user-writable; no elevation needed)
+REM   dest   = the per-user Kenshi-Join folder (user-writable; no elevation needed)
 REM
 REM Safe to re-run: it re-syncs from the source but PRESERVES the join copy's own
 REM save/ and settings so your second client keeps its independent state.
 setlocal EnableDelayedExpansion
+call "%~dp0_kenshi_dirs.cmd"
 
 set "SRC=%~1"
-if "%SRC%"=="" set "SRC=C:\Program Files (x86)\Steam\steamapps\common\Kenshi"
+if "%SRC%"=="" set "SRC=%KENSHICOOP_KENSHI_DIR%"
 
 set "DST=%~2"
-if "%DST%"=="" set "DST=%USERPROFILE%\Kenshi-Join"
+if "%DST%"=="" set "DST=%KENSHICOOP_KENSHI_JOIN_DIR%"
 
 if not exist "%SRC%\kenshi_x64.exe" (
     echo ERROR: source Kenshi not found at "%SRC%".

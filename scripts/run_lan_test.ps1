@@ -30,7 +30,9 @@ param(
     [double]$Tolerance = 0,
     [int]$Seconds = 0,
     [int]$Port = 27800,
-    [string]$JoinDir = "$env:USERPROFILE\Kenshi-Join",
+    # Join install dir. Empty -> KENSHICOOP_KENSHI_JOIN_DIR env override, else
+    # the harness default (CoopHarness.psm1).
+    [string]$JoinDir = "",
     [string]$OutDir = "",
     [switch]$SkipBuild,
     # Push the fixture save to machine 2 even if it already exists there.
@@ -49,6 +51,7 @@ $repoRoot  = Split-Path -Parent $scriptDir
 
 Import-Module (Join-Path $scriptDir "CoopOracles.psm1") -Force
 Import-Module (Join-Path $scriptDir "CoopHarness.psm1") -Force
+if ($JoinDir -eq "") { $JoinDir = Get-CoopKenshiJoinDir }
 $manifest = Get-ScenarioManifest
 
 # ---- LAN config -----------------------------------------------------------------

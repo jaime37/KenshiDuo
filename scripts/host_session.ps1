@@ -33,7 +33,9 @@ param(
     # Save to load (defaults from the scenario manifest; must match the kit's).
     [string]$Save = "",
     [int]$Port = 27800,
-    [string]$HostDir = "C:\Program Files (x86)\Steam\steamapps\common\Kenshi",
+    # Host install dir. Empty -> KENSHICOOP_KENSHI_DIR env override, else the
+    # harness default (CoopHarness.psm1).
+    [string]$HostDir = "",
     [switch]$SkipBuild,
     [int]$FreePlayMinutes = 0,
     # Skip the automatic UPnP router mapping (manual port forward only).
@@ -57,6 +59,8 @@ function ConvertTo-SteamId64([string]$id) {
 $useSteam = ($PeerSteamId -ne "")
 
 Import-Module (Join-Path $scriptDir "CoopOracles.psm1") -Force
+Import-Module (Join-Path $scriptDir "CoopHarness.psm1") -Force
+if ($HostDir -eq "") { $HostDir = Get-CoopKenshiDir }
 $manifest = Get-ScenarioManifest
 
 $isFree = ($Scenario -eq "free" -or $Scenario -eq "")

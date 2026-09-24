@@ -37,6 +37,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Import-Module (Join-Path $scriptDir "CoopHarness.psm1") -Force
 
 function Invoke-Step {
     param([string]$Name, [scriptblock]$Action)
@@ -70,7 +71,7 @@ if (-not $gone) {
 }
 
 # Confirm the deployed DLL is actually unlocked before we bother building.
-$deployedDll = "C:\Program Files (x86)\Steam\steamapps\common\Kenshi\mods\KenshiCoop\KenshiCoop.dll"
+$deployedDll = Join-Path (Get-CoopKenshiDir) "mods\KenshiCoop\KenshiCoop.dll"
 if (Test-Path $deployedDll) {
     $unlocked = $false
     for ($i = 0; $i -lt 10; $i++) {

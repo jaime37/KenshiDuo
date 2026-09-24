@@ -99,6 +99,8 @@ if (-not $useSteam -and $HostIp -eq "") { throw "Pass -HostIp <ip> (UDP) or -Hos
 if ($useSteam) { [void](ConvertTo-SteamId64 $HostSteamId) }
 
 # ---- Locate Kenshi ---------------------------------------------------------------
+# Explicit env override wins over the candidate probe below.
+if ($KenshiDir -eq "") { $KenshiDir = "$env:KENSHICOOP_KENSHI_DIR" }
 if ($KenshiDir -eq "") {
     foreach ($cand in @(
         "C:\Program Files (x86)\Steam\steamapps\common\Kenshi",

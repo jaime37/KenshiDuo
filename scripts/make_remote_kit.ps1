@@ -46,7 +46,9 @@ param(
     [string]$Scenario = "coop_presence",
     [int]$Port = 27800,
     [switch]$SkipBuild,
-    [string]$HostDir = "C:\Program Files (x86)\Steam\steamapps\common\Kenshi",
+    # Host install dir. Empty -> KENSHICOOP_KENSHI_DIR env override, else the
+    # harness default (CoopHarness.psm1).
+    [string]$HostDir = "",
     # Transport baked into kit.json: "udp" (default; IP + port forwarding) or
     # "steam" (connect by SteamID: NAT punch + Valve relay, no router setup).
     [ValidateSet("udp", "steam")]
@@ -62,6 +64,9 @@ param(
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot  = Split-Path -Parent $scriptDir
+
+Import-Module (Join-Path $scriptDir "CoopHarness.psm1") -Force
+if ($HostDir -eq "") { $HostDir = Get-CoopKenshiDir }
 
 if (-not $SkipBuild) {
     Write-Host "=== build plugin ==="

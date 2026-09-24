@@ -82,8 +82,10 @@ param(
     [switch]$JoinFromMenu,
     [int]$Port = 27800,
     [string]$Ip = "127.0.0.1",
-    [string]$HostDir = "C:\Program Files (x86)\Steam\steamapps\common\Kenshi",
-    [string]$JoinDir = "$env:USERPROFILE\Kenshi-Join",
+    # Install dirs. Empty -> KENSHICOOP_KENSHI_DIR / KENSHICOOP_KENSHI_JOIN_DIR
+    # env override, else the harness defaults (CoopHarness.psm1).
+    [string]$HostDir = "",
+    [string]$JoinDir = "",
     [switch]$Sync,
     [switch]$SkipBuild,
     [switch]$SkipDeploy,
@@ -203,6 +205,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+Import-Module (Join-Path $scriptDir "CoopHarness.psm1") -Force
+if ($HostDir -eq "") { $HostDir = Get-CoopKenshiDir }
+if ($JoinDir -eq "") { $JoinDir = Get-CoopKenshiJoinDir }
 
 # Tiling is the manual-session default; -NoTile opts out (-Tile kept for compat).
 $doTile = -not $NoTile

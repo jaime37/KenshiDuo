@@ -1,8 +1,10 @@
 @echo off
 REM Deploy KenshiCoop into a Kenshi install's mods folder.
 REM Usage:  scripts\deploy.cmd ["C:\path\to\Kenshi"]
-REM Defaults to the Steam install path if no argument is given.
+REM Defaults to the Steam install path if no argument is given (override via
+REM the KENSHICOOP_KENSHI_DIR / KENSHICOOP_KENSHI_JOIN_DIR env vars).
 setlocal EnableDelayedExpansion
+call "%~dp0_kenshi_dirs.cmd"
 
 set "REPO=%~dp0.."
 pushd "%REPO%" >nul
@@ -10,7 +12,7 @@ set "REPO=%CD%"
 popd >nul
 
 set "KENSHI=%~1"
-if "%KENSHI%"=="" set "KENSHI=C:\Program Files (x86)\Steam\steamapps\common\Kenshi"
+if "%KENSHI%"=="" set "KENSHI=%KENSHICOOP_KENSHI_DIR%"
 
 REM Build config to deploy (Phase 1 build separation). Default = Harness (the
 REM test build with the scenario runner). Pass "Release" as the 2nd argument to
@@ -71,7 +73,7 @@ dir /b "%DST%"
 
 REM Also deploy into the separate JOIN install if it exists, so both clients run
 REM the same freshly-built plugin. (Created by scripts\setup_join_install.cmd.)
-set "JOINDIR=%USERPROFILE%\Kenshi-Join"
+set "JOINDIR=%KENSHICOOP_KENSHI_JOIN_DIR%"
 if not "%KENSHI%"=="%JOINDIR%" if exist "%JOINDIR%\kenshi_x64.exe" (
     set "JDST=%JOINDIR%\mods\KenshiCoop"
     if not exist "!JDST!" mkdir "!JDST!"

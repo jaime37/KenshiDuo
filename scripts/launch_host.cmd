@@ -1,7 +1,9 @@
 @echo off
 REM Launch Kenshi as the co-op HOST (authoritative). Listens on UDP 27800.
 REM The plugin reads KENSHICOOP_MODE/IP/PORT from the environment at startup.
-set "KENSHI_DIR=C:\Program Files (x86)\Steam\steamapps\common\Kenshi"
+REM Install dir: scripts\_kenshi_dirs.cmd (override via KENSHICOOP_KENSHI_DIR).
+call "%~dp0_kenshi_dirs.cmd"
+set "KENSHI_DIR=%KENSHICOOP_KENSHI_DIR%"
 
 set KENSHICOOP_MODE=host
 set KENSHICOOP_PORT=27800

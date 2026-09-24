@@ -4,7 +4,9 @@ REM The plugin reads KENSHICOOP_MODE/IP/PORT from the environment at startup.
 REM
 REM Uses the SEPARATE join install (set up via scripts\setup_join_install.cmd) so
 REM it has its own save/config/logs and can't collide with the HOST instance.
-set "KENSHI_DIR=%USERPROFILE%\Kenshi-Join"
+REM Install dir: scripts\_kenshi_dirs.cmd (override via KENSHICOOP_KENSHI_JOIN_DIR).
+call "%~dp0_kenshi_dirs.cmd"
+set "KENSHI_DIR=%KENSHICOOP_KENSHI_JOIN_DIR%"
 
 set KENSHICOOP_MODE=join
 set KENSHICOOP_IP=127.0.0.1

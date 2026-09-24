@@ -17,7 +17,9 @@ param(
     [Parameter(Mandatory=$true)][string]$Setup,
     [string]$BaseSave = "squad1",
     [Parameter(Mandatory=$true)][string]$BakeSave,
-    [string]$HostDir = "C:\Program Files (x86)\Steam\steamapps\common\Kenshi",
+    # Host install dir. Empty -> KENSHICOOP_KENSHI_DIR env override, else the
+    # harness default (CoopHarness.psm1).
+    [string]$HostDir = "",
     [int]$Seconds = 120,
     [int]$StartTimeoutSec = 240,
     [switch]$SkipDeploy,
@@ -29,6 +31,9 @@ param(
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo      = Split-Path -Parent $scriptDir
+
+Import-Module (Join-Path $scriptDir "CoopHarness.psm1") -Force
+if ($HostDir -eq "") { $HostDir = Get-CoopKenshiDir }
 
 $hostExe = Join-Path $HostDir "kenshi_x64.exe"
 if (-not (Test-Path $hostExe)) { throw "Kenshi not found at $HostDir" }

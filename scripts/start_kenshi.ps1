@@ -17,7 +17,10 @@
 # inherited by the launched process and propagate to the relaunched game.
 
 param(
-    [string]$ExePath = "C:\Program Files (x86)\Steam\steamapps\common\Kenshi\kenshi_x64.exe",
+    # Default: KENSHICOOP_KENSHI_DIR env, else the Steam install. Resolved inline
+    # (not via CoopHarness.psm1): setup_lan_host.ps1 ships this script STANDALONE
+    # to the second machine, so it cannot import the module.
+    [string]$ExePath = $(if ($env:KENSHICOOP_KENSHI_DIR) { Join-Path $env:KENSHICOOP_KENSHI_DIR "kenshi_x64.exe" } else { "C:\Program Files (x86)\Steam\steamapps\common\Kenshi\kenshi_x64.exe" }),
     [string]$WorkDir = "",
     [int]$TimeoutSec = 90
 )

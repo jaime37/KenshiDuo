@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Functional test runner for KenshiCoop: launch host + join, auto-load a save,
   run for a fixed time (or a compiled scenario), self-exit, then collect
@@ -38,8 +38,10 @@ param(
     [int]$Seconds = 60,
     [int]$Port = 27800,
     [string]$Ip = "127.0.0.1",
-    [string]$HostDir = "C:\Program Files (x86)\Steam\steamapps\common\Kenshi",
-    [string]$JoinDir = "$env:USERPROFILE\Kenshi-Join",
+    # Install dirs. Empty -> KENSHICOOP_KENSHI_DIR / KENSHICOOP_KENSHI_JOIN_DIR
+    # env override, else the harness defaults (CoopHarness.psm1).
+    [string]$HostDir = "",
+    [string]$JoinDir = "",
     [string]$OutDir = "",
     [switch]$Sync,
     [switch]$NoKill,
@@ -110,6 +112,8 @@ $repoRoot  = Split-Path -Parent $scriptDir
 
 Import-Module (Join-Path $scriptDir "CoopOracles.psm1") -Force
 Import-Module (Join-Path $scriptDir "CoopHarness.psm1") -Force
+if ($HostDir -eq "") { $HostDir = Get-CoopKenshiDir }
+if ($JoinDir -eq "") { $JoinDir = Get-CoopKenshiJoinDir }
 $manifest = Get-ScenarioManifest
 
 # ---- Resolve manifest defaults ------------------------------------------------
