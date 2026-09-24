@@ -225,6 +225,14 @@ public:
     // resend elapsed). No-op when no owned container is registered / resolves.
     void publishInventories(GameWorld* gw, NetLink& net, u32 ownerId);
 
+    // Protocol 61 pre-save fence (join side): latch a host request. The ordinary
+    // publisher waits until every owned inventory is stable under its cursor /
+    // removal debounce, forces one full snapshot per container, and queues ACK
+    // after them on the same reliable ordered channel.
+    void requestInventorySaveFence(u32 fenceId) {
+        if (fenceId > invSaveFencePending_) invSaveFencePending_ = fenceId;
+    }
+
     // BEFORE engine (BOTH clients since the W1 bidir fix): scan the interest sphere for
     // free ground items WE author (peer proxies are filtered by the echo guard), assign/
     // reuse a netId per item (keyed by its local engine hand), and queue a reliable
@@ -1468,6 +1476,7 @@ private:
     std::set<Key>          ownedContainers_;
     std::map<Key, InvPub>  invPub_;
     std::map<Key, InvRecv> invRecv_;
+    u32                    invSaveFencePending_;
     // Protocol 34: the host's ~1 Hz container census result (LOCAL hands of
     // complete STORAGE/machine-class buildings in the interest spheres).
     // Folded into the authored set each publishInventories pass while

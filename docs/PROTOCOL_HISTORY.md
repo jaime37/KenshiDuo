@@ -13,10 +13,10 @@ so parallel integration lines do not collide.
 | 58 | PR #76 (BorjaAres): host-validated door open/lock intents (`PKT_DOOR_INTENT` = 51; series shifted by one after tag 49 collision). |
 | 59 | PR #78 (BorjaAres): host-canonical bed/cage occupancy intents (`PKT_FURNITURE` = 52; same one-tag shift). |
 | 60 | PR #79 (BorjaAres): host-canonical construction place/remove intents (`PKT_BUILD_INTENT` = 53; same one-tag shift). |
+| 61 | PR #80 (BorjaAres): inventory save fence over owner-authored state (`PKT_INV_SAVE_FENCE` = 54; same one-tag shift). |
 
 ## Planned (reserved, not yet merged)
 
 | Version | Change |
 |---|---|
-| 61 | BorjaAres PR #80 (inventory save fence). |
 | 62–65 | July PRs #18, #28, #35, #36 (one bump each, in that order). |
