@@ -109,10 +109,10 @@ static void testSizes() {
     CHECK_EQ("sizeof(TreatmentPacket)",         sizeof(TreatmentPacket),         77);
     CHECK_EQ("sizeof(CombatHitPacket)",         sizeof(CombatHitPacket),         37);
     CHECK_EQ("sizeof(SpeedPacket)",             sizeof(SpeedPacket),             14);
-    CHECK_EQ("sizeof(StatsPacket)",             sizeof(StatsPacket),             194);
+    CHECK_EQ("sizeof(StatsPacket)",             sizeof(StatsPacket),             198);
     CHECK_EQ("sizeof(StealthPacket)",           sizeof(StealthPacket),           427);
     CHECK_EQ("sizeof(SpawnReqPacket)",          sizeof(SpawnReqPacket),          25);
-    CHECK_EQ("sizeof(SpawnInfoPacket)",         sizeof(SpawnInfoPacket),         143);
+    CHECK_EQ("sizeof(SpawnInfoPacket)",         sizeof(SpawnInfoPacket),         191);
     CHECK_EQ("sizeof(MoneyPacket)",             sizeof(MoneyPacket),             13);
     CHECK_EQ("sizeof(MoneyDeltaPacket)",        sizeof(MoneyDeltaPacket),        13);
     CHECK_EQ("sizeof(FactionPacket)",           sizeof(FactionPacket),           61);
@@ -332,8 +332,8 @@ static void testSizes() {
     CHECK_EQ("EVT_SQUAD_MOVE id", (int)EVT_SQUAD_MOVE, 11);
     CHECK("EVT_SQUAD_MOVE distinct", EVT_SQUAD_MOVE != EVT_RECRUIT &&
           EVT_SQUAD_MOVE != EVT_NONE && EVT_SQUAD_MOVE != EVT_EXIT_FURNITURE);
-    CHECK_EQ("PROTOCOL_VERSION (v62: bounty/crime sync, PKT_BOUNTY = 55)",
-             (int)PROTOCOL_VERSION, 62);
+    CHECK_EQ("PROTOCOL_VERSION (v63: character name + animal age sync)",
+             (int)PROTOCOL_VERSION, 63);
 
     // Protocol 56: save-native pickup notice. The ownership filter (protocol 55)
     // keeps owned town/shop items out of the stream, so their pickup needs its own
@@ -577,6 +577,31 @@ static void testRoundTrips() {
     roundTrip<InvSaveFencePacket>("InvSaveFencePacket", (u8)PKT_INV_SAVE_FENCE);
     roundTrip<CellClaimPacket>("CellClaimPacket", (u8)PKT_CELL_CLAIM);
     roundTrip<InvXferAckPacket>("InvXferAckPacket", (u8)PKT_INV_XFER_ACK);
+
+    // Protocol 63: the new name/age fields must survive the wire byte-exact -
+    // the receiver applies SpawnInfoPacket.name to the minted proxy and
+    // StatsPacket.age to the subject, so a truncated/garbled field is exactly
+    // the regression this locks.
+    {
+        SpawnInfoPacket si; std::memset(&si, 0, sizeof(si));
+        si.type = (u8)PKT_SPAWN_INFO;
+        std::strncpy(si.name, "Beep the Brave", sizeof(si.name) - 1);
+        si.age = 3.5f;
+        unsigned char sbuf[sizeof(SpawnInfoPacket)];
+        std::memcpy(sbuf, &si, sizeof(si));
+        SpawnInfoPacket so; std::memset(&so, 0, sizeof(so));
+        CHECK("SpawnInfoPacket name+age round-trip",
+              readPacket(sbuf, (unsigned)sizeof(sbuf), &so) &&
+              std::strcmp(so.name, "Beep the Brave") == 0 && so.age == 3.5f);
+        StatsPacket sa; std::memset(&sa, 0, sizeof(sa));
+        sa.type = (u8)PKT_STATS;
+        sa.age = 12.25f;
+        unsigned char abuf[sizeof(StatsPacket)];
+        std::memcpy(abuf, &sa, sizeof(sa));
+        StatsPacket ao; std::memset(&ao, 0, sizeof(ao));
+        CHECK("StatsPacket age round-trip",
+              readPacket(abuf, (unsigned)sizeof(abuf), &ao) && ao.age == 12.25f);
+    }
 
     CHECK("packetType(null) == 0", packetType(0, 10) == 0);
     unsigned char b0[1] = { 0 };

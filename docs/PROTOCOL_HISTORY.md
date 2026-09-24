@@ -15,9 +15,10 @@ so parallel integration lines do not collide.
 | 60 | PR #79 (BorjaAres): host-canonical construction place/remove intents (`PKT_BUILD_INTENT` = 53; same one-tag shift). |
 | 61 | PR #80 (BorjaAres): inventory save fence over owner-authored state (`PKT_INV_SAVE_FENCE` = 54; same one-tag shift). |
 | 62 | PR #18 (zeroit789): host-authoritative bounty/crime sync (`PKT_BOUNTY` = 55; the PR's tag 42 was taken by `PKT_COMBAT_HIT`). |
+| 63 | PR #28 (ChainsLunatic, extraction): character name in `SpawnInfoPacket` + animal age in `StatsPacket` (new fields only, no new tags). |
 
 ## Planned (reserved, not yet merged)
 
 | Version | Change |
 |---|---|
-| 63–65 | July PRs #28, #35, #36 (one bump each, in that order). |
+| 64–65 | July PRs #35, #36 (one bump each, in that order). |

@@ -370,10 +370,18 @@ bool describeCharacter(Character* c, char* charSid, unsigned int charSidLen,
 // doesn't resolve), parked at the host transform, created at the host's 'age'
 // (animals scale body size by age; <= 0 or non-finite falls back to the adult
 // default). Appearance/equipment are the template's (randomized gear) -
-// cosmetic; combat outcomes stay host-authoritative + damage-guarded. Returns
-// the proxy Character* or 0.
+// cosmetic; combat outcomes stay host-authoritative + damage-guarded. 'name'
+// (protocol 63) gives the proxy the host body's display name ("" keeps the
+// template default). Returns the proxy Character* or 0.
 Character* spawnProxyNpc(GameWorld* gw, const char* charSid, const char* facSid,
-                         float x, float y, float z, float heading, float age);
+                         float x, float y, float z, float heading, float age,
+                         const char* name);
+
+// Age read/write (protocol 63 animal-scale sync over the stats channel).
+// SEH-guarded; charAge returns <= 0 on fault, setCharAge no-ops a
+// non-finite/<=0 value.
+float charAge(Character* c);
+void  setCharAge(Character* c, float age);
 
 // SEH-guarded (Phase 1 spawn parity, game/ZoneQuery.cpp): is the world block at
 // (x,y,z) fully LOADED locally (loaded and not mid-load)? Within a loaded block

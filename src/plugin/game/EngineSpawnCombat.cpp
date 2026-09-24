@@ -187,8 +187,36 @@ Character* adoptCandidateNear(GameWorld* gw, const char* charSid,
     }
 }
 
+// setName takes a std::string (destructor forbids __try in-frame): the POD-only
+// shim wraps the non-POD callee, mirroring charName/charNameCopy.
+void setProxyNameCopy(Character* c, const char* name) {
+    c->setName(std::string(name));
+}
+void setProxyNameGuarded(Character* c, const char* name) {
+    if (!c || !name || !name[0]) return;
+    __try {
+        setProxyNameCopy(c, name);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+// Age read/write for the stats-channel animal-scale sync (protocol 63). Age
+// drives CharacterAnimal body scale; humans return a cosmetic age (harmless).
+float charAge(Character* c) {
+    if (!c) return -1.0f;
+    __try {
+        return c->getAge();
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return -1.0f; }
+}
+void setCharAge(Character* c, float age) {
+    if (!c || !(age > 0.0f && age < 1.0e6f)) return;
+    __try {
+        c->setAge(age);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
 Character* spawnProxyNpc(GameWorld* gw, const char* charSid, const char* facSid,
-                         float x, float y, float z, float heading, float age) {
+                         float x, float y, float z, float heading, float age,
+                         const char* name) {
     if (!gw || !gw->theFactory || !g_createCharFn || !charSid || !charSid[0]) return 0;
     // Creature-size sync (protocol 39): animals scale body size by age, so the
     // proxy must be CREATED at the host's age or it spawns full-grown (the
@@ -235,6 +263,9 @@ Character* spawnProxyNpc(GameWorld* gw, const char* charSid, const char* facSid,
     // authority for a proxy (AI-suspend re-asserts this every driven tick).
     detachFromTownAI(c);
     clearGoals(c);
+    // Name sync (protocol 63): give the proxy the host body's name so runtime
+    // NPCs/recruits don't show Kenshi's default "Name" on the peer.
+    setProxyNameGuarded(c, name);
     return c;
 }
 

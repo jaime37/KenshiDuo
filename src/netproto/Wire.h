@@ -25,7 +25,7 @@ typedef double         f64;
 // this header stays a definition file. When you bump PROTOCOL_VERSION, add the
 // matching entry at the bottom of that doc. The version is checked at handshake
 // and a mismatch is rejected (no back-compat).
-const u16 PROTOCOL_VERSION = 62;
+const u16 PROTOCOL_VERSION = 63;
 
 // Packet type tags (first byte of every packet).
 enum PacketType {
@@ -1032,6 +1032,7 @@ struct StatsPacket {
     f32 stats[STATS_SLOT_MAX]; // by StatsEnumerated index (-1 = unreadable)
     f32 xp;                    // CharStats::xp (-1 = unreadable)
     f32 freeAttributePoints;   // CharStats::freeAttributePoints (int on wire as f32; -1 = unreadable)
+    f32 age;                   // Character::getAge (protocol 63); animals scale body size by age. <= 0 = unreadable
 };
 
 // ---- Protocol 52: shared money pool ------------------------------------------
@@ -1462,6 +1463,7 @@ struct SpawnInfoPacket {
     u32 hSerial;
     char charSid[48]; // character template GameData stringID
     char facSid[48];  // faction GameData stringID ("" = unknown -> join fallback)
+    char name[48];    // host body's display name (protocol 63); "" = unnamed
     f32 x;            // world transform at reply time
     f32 y;
     f32 z;
