@@ -644,6 +644,71 @@ void Replicator::applyTargets(GameWorld* gw) {
             // host's work pose at rest). Cage/bed (kinds 1-2) remain true
             // transform anchors below, driven by protocol 59's Host row.
             if (streamKind == 3) {
+                // Kind-conflict anchor (spike 58 follow-up 1): the owner's
+                // reliable furniture state settles a chained+caged prisoner on
+                // the CAGE (protocol 59's canonical FURNITURE_STATE row), but
+                // the lossy continuous batch can still say CHAINED-only - so
+                // the CAGE-BREAK below used to break that vouched cage and
+                // re-chain every tick, a median 75-88 u (tail 885 u) re-seat
+                // teleport on 10-15 bodies per session. While a reliable edge
+                // vouches the local cage/bed (d.furnEdgeKind, stamped when the
+                // canonical STATE row is applied), the cage/bed stays the
+                // transform anchor and the shackle is an EQUIP-only state:
+                // hold the body like the kind 1/2 path below and re-assert
+                // setChainedMode WITHOUT breaking the anchor. An UNVOUCHED
+                // local cage/bed is a stale attach at the wrong spot (the
+                // Flashbox case) and still takes the break+re-chain path.
+                if (coop::chainAnchorStep(streamKind, localKind,
+                                          d.furnEdgeKind) ==
+                    coop::CHAIN_ANCHOR_HOLD) {
+                    d.furnNoSeeTick = 0;
+                    // Same hold as the kind 1/2 branch: an anchored captive
+                    // must not run its own decision layer, and a committed
+                    // destination must not walk it out between heals.
+                    if (aiSuspend_) {
+                        engine::addAiSuspend(c);
+                        engine::haltMovement(c);
+                    }
+                    // EQUIP-only shackle re-assert (throttled like the unlock
+                    // guard): remember the owner while chained, re-lock if the
+                    // local copy lost the chain (lockpick / AI break-out).
+                    engine::ShackleRead asr;
+                    bool haveAsr = engine::readShackle(c, &asr) && asr.valid;
+                    if (haveAsr && asr.chained &&
+                        (asr.owner[3] != 0 || asr.owner[4] != 0)) {
+                        for (int fi = 0; fi < 5; ++fi)
+                            d.chainOwner[fi] = asr.owner[fi];
+                        d.haveChainOwner = true;
+                    }
+                    if (haveAsr && !asr.chained &&
+                        (now - d.chainHealTick) >= FURN_HEAL_MS) {
+                        d.chainHealTick = now;
+                        bool ok = d.haveChainOwner
+                            ? engine::applyFurniture(gw, c, d.chainOwner, 3, true)
+                            : engine::applyFurniture(gw, c, 0, 3, true);
+                        engine::endAction(c);
+                        char b[160]; _snprintf(b, sizeof(b) - 1,
+                            "[furn] CHAIN EQUIP occ=%u,%u anchor=%d ok=%d",
+                            out.hIndex, out.hSerial, localKind, ok ? 1 : 0);
+                        b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+                    }
+                    // Distinct trace for the skipped CAGE-BREAK, throttled per
+                    // body (the hold is the steady state; an unthrottled line
+                    // would spam once per drive tick per anchored captive).
+                    static std::map<Key, unsigned long> s_holdLogMs;
+                    Key hk = keyOf(out);
+                    std::map<Key, unsigned long>::iterator ht = s_holdLogMs.find(hk);
+                    if (ht == s_holdLogMs.end() || (now - ht->second) >= FURN_HEAL_MS) {
+                        s_holdLogMs[hk] = now;
+                        char vb[160]; _snprintf(vb, sizeof(vb) - 1,
+                            "[furn] CAGE-HOLD occ=%u,%u kind=%d stream=3 (vouched)",
+                            out.hIndex, out.hSerial, localKind);
+                        vb[sizeof(vb) - 1] = '\0'; coop::logLine(vb);
+                    }
+                    d.parked = false; d.haveDest = false;
+                    if (haveActual) { d.haveActual = true; d.lx = ax; d.ly = ay; d.lz = az; }
+                    continue;
+                }
                 // Unvouched local bed/cage while the owner streams chained-
                 // not-caged (world_parity camp, Flashbox): the host's guards
                 // re-jail the peer-driven copy locally. The cage is a true
@@ -713,7 +778,17 @@ void Replicator::applyTargets(GameWorld* gw) {
                 // exception: suspend its decisions so it stays put. The suspend set is
                 // rebuilt every drive tick, so this self-clears the moment the host
                 // stops streaming the furniture bit (body released) and its AI resumes.
-                if (aiSuspend_) engine::addAiSuspend(c);
+                if (aiSuspend_) {
+                    engine::addAiSuspend(c);
+                    // Spike 58 follow-up 2: the suspend hook only blocks NEW
+                    // decisions - a destination the local AI committed before
+                    // it still walks the copy out between heals (8/22 jailed
+                    // SNAPs carried localStep>2 u, up to 28.6 u). Halt the
+                    // in-flight goal per tick, exactly like the census-freeze
+                    // upkeep, so localStep stays 0 and the twitch is a pure
+                    // (and now rare) re-seat instead of exit-then-snap.
+                    engine::haltMovement(c);
+                }
                 if (haveFr && localKind != streamKind &&
                     (now - d.furnHealTick) >= FURN_HEAL_MS) {
                     d.furnHealTick = now;
@@ -792,6 +867,7 @@ void Replicator::applyTargets(GameWorld* gw) {
                     d.furnNoSeeTick = now;
                 } else if ((now - d.furnNoSeeTick) > FURN_EXIT_MS) {
                     d.furnNoSeeTick = 0;
+                    d.furnEdgeKind = 0; // debounced exit: the vouch dies with it
                     bool ok = engine::applyFurniture(gw, c, lfr.furn, localKind, false);
                     char b[160]; _snprintf(b, sizeof(b) - 1,
                         "[furn] HEAL EXIT occ=%u,%u kind=%d ok=%d",

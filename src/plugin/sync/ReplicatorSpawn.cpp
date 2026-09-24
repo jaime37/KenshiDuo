@@ -927,6 +927,15 @@ void Replicator::applyFurniturePackets(GameWorld* gw, Inbound& in, NetLink& net,
             if (ok) {
                 engine::endAction(occ);
                 row.applyPending = false;
+                // Spike 58 (kind-conflict anchor): the applied canonical row
+                // is the reliable edge that VOUCHES this body's cage/bed under
+                // protocol 59 (the legacy RECV ENTER events carry only the
+                // chained kind now). Stamp the vouch so a CHAINED-only
+                // continuous bit can't break this cage (chainAnchorStep); a
+                // canonical release withdraws it. Driven bodies only.
+                if (ownHands_.find(it->first) == ownHands_.end())
+                    targets_[it->first].furnEdgeKind =
+                        coop::furnEdgeVouchFromState(row.applyOn, row.applyKind);
             }
         }
     }
@@ -1139,12 +1148,20 @@ void Replicator::rekeyPeerBody(GameWorld* gw, const Key& oldK, const Key& newK,
     // EVT_SQUAD_MOVE re-keyed it and un-pinned the body). Snapshot the latches
     // here and re-seed them onto targets_[newK] so the corpse stays down.
     bool carryDeath = false, carryKo = false, carryDown = false;
+    // Carry the furniture-edge vouch too: a caged+shackled prisoner whose
+    // hand re-keys mid-occupancy (recruit / squad move) would otherwise get a
+    // fresh Driven with furnEdgeKind=0, and the very next kind-3 tick reads
+    // CHAIN_ANCHOR_RECHAIN instead of HOLD (chainAnchorStep) - one 75-885 u
+    // re-seat teleport, exactly what the jail-anchor fix suppresses. The
+    // vouch is a reliable-edge fact about the BODY, not the hand.
+    int carryFurnKind = 0;
     {
         std::map<Key, Driven>::iterator oldT = targets_.find(oldK);
         if (oldT != targets_.end()) {
-            carryDeath = oldT->second.deathLatched;
-            carryKo    = oldT->second.koLatched;
-            carryDown  = oldT->second.downApplied;
+            carryDeath    = oldT->second.deathLatched;
+            carryKo       = oldT->second.koLatched;
+            carryDown     = oldT->second.downApplied;
+            carryFurnKind = oldT->second.furnEdgeKind;
         }
     }
     // Drop the old key's stream state too (run 192211: the interp TAIL of a
@@ -1168,6 +1185,17 @@ void Replicator::rekeyPeerBody(GameWorld* gw, const Key& oldK, const Key& newK,
             newK.t, newK.c, newK.cs, newK.i, newK.s,
             carryDeath ? 1 : 0, carryKo ? 1 : 0);
         lb[sizeof(lb) - 1] = '\0'; coop::logLine(lb);
+    }
+    if (carryFurnKind != 0) {
+        Driven& nd = targets_[newK]; // stream fills interp; we seed only the vouch
+        // A canonical STATE row already applied under the NEW hand is fresher
+        // than the migrated vouch - keep it and only fill the empty slot.
+        if (nd.furnEdgeKind == 0) nd.furnEdgeKind = carryFurnKind;
+        char fb[200]; _snprintf(fb, sizeof(fb) - 1,
+            "[event] REKEY-FURN old=%u,%u,%u,%u,%u new=%u,%u,%u,%u,%u kind=%d",
+            oldK.t, oldK.c, oldK.cs, oldK.i, oldK.s,
+            newK.t, newK.c, newK.cs, newK.i, newK.s, nd.furnEdgeKind);
+        fb[sizeof(fb) - 1] = '\0'; coop::logLine(fb);
     }
     Character* c = engine::resolveCharByHand(oldK.i, oldK.s, oldK.t, oldK.c, oldK.cs);
     if (!c) {
