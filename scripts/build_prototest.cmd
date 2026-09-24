@@ -33,6 +33,7 @@ cl.exe /nologo /O2 /EHsc /W3 /D KENSHICOOP_PROTOTEST ^
     /Fo"%REPO%\build\prototest\\" ^
     /Fe"%REPO%\dist\prototest.exe" ^
     "%REPO%\src\prototest\main.cpp" ^
+    "%REPO%\src\prototest\savexfer_test.cpp" ^
     "%REPO%\src\plugin\sync\Interp.cpp" ^
     "%REPO%\src\plugin\sync\SaveXfer.cpp"
 if errorlevel 1 (
