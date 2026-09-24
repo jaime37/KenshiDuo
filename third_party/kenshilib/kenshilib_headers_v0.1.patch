@@ -1,0 +1,49 @@
+--- a/KenshiLib/Include/kenshi/Platoon.h
++++ b/KenshiLib/Include/kenshi/Platoon.h
+@@ -28,6 +28,8 @@
+ class AreaSector;
+ 
+ // TODO move?
++#ifndef KC_BD_DEFINED
++#define KC_BD_DEFINED
+ enum BuildingDesignation
+ {
+     BD_NONE,
+@@ -43,6 +45,7 @@
+     BD_SLAVE_STORAGE,
+     BD_RESIDENTIAL_SMALL
+ };
++#endif
+ 
+ enum BuildingFunction;
+ 
+--- a/KenshiLib/Include/kenshi/Building/Building.h
++++ b/KenshiLib/Include/kenshi/Building/Building.h
+@@ -11,6 +11,8 @@
+ #include <kenshi/PhysicsCollection.h>
+ #include <kenshi/PhysicsActual.h>
+ 
++#ifndef KC_BD_DEFINED
++#define KC_BD_DEFINED
+ enum BuildingDesignation
+ {
+     BD_NONE,
+@@ -26,6 +28,7 @@
+     BD_SLAVE_STORAGE,
+     BD_RESIDENTIAL_SMALL
+ };
++#endif
+ 
+ enum BuildingClassType
+ {
+--- a/KenshiLib/Include/kenshi/Building/CraftingBuilding.h
++++ b/KenshiLib/Include/kenshi/Building/CraftingBuilding.h
+@@ -7,7 +7,7 @@
+ class InventoryLayout;
+ class Faction;
+ class DatapanelGUI;
+-class CraftingItem;
++class CraftingItem {}; // STUB local (no publicado): solo para completar el tipo del deque
+ 
+ // TODO move?
+ class GameDataGroup

@@ -1,5 +1,13 @@
 # KenshiCoop
 
+> **Fork note (KenshiDuo):** this is a fork of
+> [nhoral/KenshiCoop](https://github.com/nhoral/KenshiCoop), whose upstream has
+> been inactive since 2026-08-10. The goal here is maximum stability for
+> exactly two players, not new features. Same license as upstream (AGPL-3.0):
+> per AGPL §13, the source corresponding to any network use of this software
+> is this repository. To build it yourself, follow
+> [`docs/BUILD_SETUP.md`](docs/BUILD_SETUP.md).
+
 Setup + Demo: [https://www.youtube.com/watch?v=OqwVRRZEYGM](https://www.youtube.com/watch?v=OqwVRRZEYGM)
 
 Experimental **co-op multiplayer for [Kenshi](https://lofigames.com/)**, built as an
