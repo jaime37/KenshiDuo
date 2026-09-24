@@ -299,6 +299,14 @@ struct InboundFurniture {
     FurniturePacket pkt;
 };
 
+// One received bounty/crime row (protocol 62): the HOST's authoritative durable
+// bounty for a (character, faction) pair; the owning client applies it onto its
+// own (clean) copy via the BountyManager levers (unfairAddToBounty/clearBounty).
+struct InboundBounty {
+    u32          ownerId;
+    BountyPacket pkt;
+};
+
 // One received stealth detection-map snapshot (protocol 20): the detection
 // AUTHORITY (the host's world, where the sneaker is a driven copy) streams who
 // notices the sneaker; the sneaker's OWNER replays the entries between its
@@ -476,7 +484,7 @@ public:
         time_(worldReset_),       door_(worldReset_),       doorIntent_(worldReset_),
         prod_(worldReset_),       prodIntent_(worldReset_),
         research_(worldReset_),   deed_(worldReset_),       fixture_(worldReset_),
-        furniture_(worldReset_),
+        furniture_(worldReset_),  bounty_(worldReset_),
         buildPlace_(worldReset_), buildState_(worldReset_),
         buildDoor_(worldReset_),  buildRemove_(worldReset_), buildIntent_(worldReset_),
         stealth_(worldReset_, 512),
@@ -678,6 +686,11 @@ public:
         InboundFurniture ifn; ifn.ownerId = ownerId; ifn.pkt = pkt;
         EnterCriticalSection(&cs_); furniture_.push_back(ifn); LeaveCriticalSection(&cs_);
     }
+    // NET thread: one received bounty/crime row (protocol 62), owner-tagged.
+    void pushBounty(u32 ownerId, const BountyPacket& pkt) {
+        InboundBounty ib; ib.ownerId = ownerId; ib.pkt = pkt;
+        EnterCriticalSection(&cs_); bounty_.push_back(ib); LeaveCriticalSection(&cs_);
+    }
     // NET thread: one received placed-building announcement (protocol 27), owner-tagged.
     void pushBuildPlace(u32 ownerId, const BuildPlacePacket& pkt) {
         InboundBuildPlace ibp; ibp.ownerId = ownerId; ibp.pkt = pkt;
@@ -862,6 +875,9 @@ public:
     void drainFurniture(std::deque<InboundFurniture>& out) {
         EnterCriticalSection(&cs_); out.swap(furniture_); LeaveCriticalSection(&cs_);
     }
+    void drainBounty(std::deque<InboundBounty>& out) {
+        EnterCriticalSection(&cs_); out.swap(bounty_); LeaveCriticalSection(&cs_);
+    }
     void drainBuildPlace(std::deque<InboundBuildPlace>& out) {
         EnterCriticalSection(&cs_); out.swap(buildPlace_); LeaveCriticalSection(&cs_);
     }
@@ -991,6 +1007,9 @@ private:
     WorldQ<InboundDeed>            deed_;
     WorldQ<InboundFixture>         fixture_;
     WorldQ<InboundFurniture>       furniture_;
+    // Bounty/crime rows (protocol 62): reliable, so unbounded; world-state, so
+    // auto-cleared on a session reset (a bounty describes the CURRENT world).
+    WorldQ<InboundBounty>          bounty_;
     WorldQ<InboundBuildPlace>      buildPlace_;
     WorldQ<InboundBuildState>      buildState_;
     WorldQ<InboundBuildDoor>       buildDoor_;

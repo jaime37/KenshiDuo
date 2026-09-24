@@ -25,7 +25,7 @@ typedef double         f64;
 // this header stays a definition file. When you bump PROTOCOL_VERSION, add the
 // matching entry at the bottom of that doc. The version is checked at handshake
 // and a mismatch is rejected (no back-compat).
-const u16 PROTOCOL_VERSION = 61;
+const u16 PROTOCOL_VERSION = 62;
 
 // Packet type tags (first byte of every packet).
 enum PacketType {
@@ -82,7 +82,8 @@ enum PacketType {
     PKT_DOOR_INTENT      = 51,// RELIABLE join -> host open/lock request (protocol 58); DoorIntentPacket
     PKT_FURNITURE        = 52,// RELIABLE join intent / host-canonical bed+cage row (protocol 59)
     PKT_BUILD_INTENT     = 53,// RELIABLE join -> host place/remove request (protocol 60); BuildIntentPacket
-    PKT_INV_SAVE_FENCE   = 54 // RELIABLE pre-save inventory checkpoint marker (protocol 61); InvSaveFencePacket
+    PKT_INV_SAVE_FENCE   = 54,// RELIABLE pre-save inventory checkpoint marker (protocol 61); InvSaveFencePacket
+    PKT_BOUNTY           = 55 // RELIABLE host-authoritative bounty/crime row (protocol 62, PR #18; tag 42 was taken by PKT_COMBAT_HIT); BountyPacket
 };
 
 // One-shot transition events carried on the RELIABLE channel. Continuous state
@@ -1731,7 +1732,81 @@ struct TimePongPacket {
     u32 responderWallMs; // host's wallClockMs() at echo
 };
 
+// ---- Protocol 62: host-authoritative bounty/crime row ------------------------
+// ONE per-(character, faction) durable bounty row, keyed by the OWNING
+// character's save-stable hand (the per-character key every other per-character
+// channel uses - BountyManager is inline per-Character, NOT per-squad) plus the
+// faction's GameData stringID (cross-client stable, proven by the faction
+// probe). The HOST is the sole authority (H2 witness-local, settled by the
+// 2026-07-20 live run): only the host's guard simulation runs the
+// witness->assignBountyForCrimes pipeline, so the row lives on the host's
+// driven copy of a join-owned PC while the owner stays clean. The host diffs
+// each row's {amount, crimes, claimed} against a silently-seeded shared-save
+// baseline and streams movement DOWN to the clients; the owning client applies
+// it via the engine's own levers (unfairAddToBounty / clearBounty). Reliable
+// (a lost row would leave the wanted level diverged until the safety resend).
+struct BountyPacket {
+    u8  type;      // = PKT_BOUNTY
+    u32 ownerId;   // network player id of the sender (the HOST = the authority)
+    u32 seq;       // per-sender monotonic (stale-row guard, as PKT_FACTION)
+    u32 hand[5];   // owning character hand [type,container,containerSerial,index,serial]
+    char sid[48];  // faction GameData stringID ("" never sent) - cross-client identity
+    int  amount;   // Bounty::amount (cats) for that (char, faction) row
+    u32  crimes;   // Bounty::crimes bitmask (CrimeEnum bits)
+    u8   claimed;  // Bounty::bountyHasBeenClaimedOnce
+};
+
 #pragma pack(pop)
+
+// ---- Protocol 62: pure bounty decision logic (header-testable) ---------------
+// The side-effect-free core of the channel, extracted so prototest can lock the
+// authority + convergence rules without a live engine (the engine read/write
+// shims stay behind SEH in EngineCharState.cpp). One value triple per row.
+struct BountyVal {
+    int amount;      // Bounty::amount (cats)
+    u32 crimes;      // Bounty::crimes bitmask
+    int claimed;     // Bounty::bountyHasBeenClaimedOnce (0/1)
+};
+
+// HOST publish gate. Host-authoritative (H2): a NON-host caller NEVER publishes
+// its own bounty state (the join must not push its clean/forked copy upstream -
+// there is no echo path). On the host, a row streams only after its baseline is
+// seeded (both clients load the same save, so a bounty already present at load
+// is shared and silent) and either its value MOVED or a safety resend is due.
+// Returns 1 = queue the row, 0 = skip.
+inline int bountyShouldSend(int isHost, int seeded,
+                            const BountyVal* known, const BountyVal* cur,
+                            int resendDue) {
+    if (!isHost) return 0;   // unidirectional host->clients: the join never publishes
+    if (!seeded) return 0;   // first sight seeds the shared-save baseline silently
+    if (!known || !cur) return 0;
+    int changed = (known->amount != cur->amount) ||
+                  (known->crimes != cur->crimes) ||
+                  (known->claimed != cur->claimed);
+    return (changed || resendDue) ? 1 : 0;
+}
+
+// Receiver apply decision. Given the last-applied per-sender seq, the incoming
+// seq, and the target vs currently-live amount on the local (driven) copy,
+// decide what the engine lever must do. Drops stale rows, skips already-
+// converged rows (a resend or the echo of our own apply), else picks the lever:
+// a raise is an additive unfairAddToBounty(delta); a drop to <= 0 is clearBounty.
+enum BountyApplyAction {
+    BOUNTY_APPLY_SKIP_STALE     = 0, // incoming seq <= seqSeen: a newer row already landed
+    BOUNTY_APPLY_SKIP_CONVERGED = 1, // local already equals target: nothing to do
+    BOUNTY_APPLY_CLEAR          = 2, // target <= 0: clearBounty(fac)
+    BOUNTY_APPLY_ADD            = 3  // non-zero delta: unfairAddToBounty(fac, delta)
+};
+inline int bountyApplyDecision(u32 seqSeen, u32 incomingSeq,
+                               int targetAmount, int currentAmount,
+                               int* outDelta) {
+    if (outDelta) *outDelta = 0;
+    if (seqSeen != 0 && incomingSeq <= seqSeen) return BOUNTY_APPLY_SKIP_STALE;
+    if (targetAmount == currentAmount)          return BOUNTY_APPLY_SKIP_CONVERGED;
+    if (targetAmount <= 0)                      return BOUNTY_APPLY_CLEAR;
+    if (outDelta) *outDelta = targetAmount - currentAmount;
+    return BOUNTY_APPLY_ADD;
+}
 
 // Returns the packet type tag (first byte) of a received buffer, or 0 if empty.
 inline u8 packetType(const void* data, unsigned int len) {

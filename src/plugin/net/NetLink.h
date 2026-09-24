@@ -172,6 +172,9 @@ public:
     void queueFixture(const FixturePacket& pkt);
     // MAIN thread: queue a reliable bed/cage intent or canonical state (v58).
     void queueFurniture(const FurniturePacket& pkt);
+    // MAIN thread: queue a reliable host-authoritative bounty/crime row
+    // (protocol 62). Change-gated + safety-resent by the caller (host only).
+    void queueBounty(const BountyPacket& pkt);
     void queueBuildPlace(const BuildPlacePacket& pkt);
     void queueBuildState(const BuildStatePacket& pkt);
     void queueBuildDoor(const BuildDoorPacket& pkt);
@@ -344,6 +347,8 @@ private:
     // Reliable runtime-fixture identity rows (protocol 55). Guarded by outCs_.
     std::vector<FixturePacket>   outFixture_;
     std::vector<FurniturePacket> outFurniture_;
+    // Reliable bounty/crime rows (protocol 62). Guarded by outCs_.
+    std::vector<BountyPacket>    outBounty_;
     std::vector<BuildPlacePacket> outBuildPlace_;
     std::vector<BuildStatePacket> outBuildState_;
     std::vector<BuildDoorPacket>  outBuildDoor_;

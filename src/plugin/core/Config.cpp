@@ -236,6 +236,12 @@ void loadConfig(Config& c) {
     c.researchSync = envOr("KENSHICOOP_RESEARCH_SYNC", "1") != "0";
     c.deedSync    = envOr("KENSHICOOP_DEED_SYNC", "1") != "0";
     c.fixtureSync = envOr("KENSHICOOP_FIXTURE_SYNC", "1") != "0";
+    c.bountySync = envOr("KENSHICOOP_BOUNTY_SYNC", "1") != "0";
+    // The bounty channel (protocol 62) coexists with the read-only spike-59
+    // probe (KENSHICOOP_BOUNTY_PROBE): the probe only READS, so both can run,
+    // but keep the write channel OFF while probing the unsynced baseline.
+    if (envOr("KENSHICOOP_BOUNTY_PROBE", "0") == "1") c.bountySync = false;
+
     c.storeSync   = envOr("KENSHICOOP_STORE_SYNC", "1") != "0";
     c.squadSync   = envOr("KENSHICOOP_SQUAD_SYNC", "1") != "0";
     c.latejoinSync = envOr("KENSHICOOP_LATEJOIN_SYNC", "1") != "0";

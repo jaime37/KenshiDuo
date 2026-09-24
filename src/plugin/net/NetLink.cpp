@@ -286,6 +286,7 @@ void NetLink::queueDeed(const DeedPacket& pkt) { pushLocked(outCs_, outDeed_, pk
 void NetLink::queueFixture(const FixturePacket& pkt) { pushLocked(outCs_, outFixture_, pkt); }
 
 void NetLink::queueFurniture(const FurniturePacket& pkt) { pushLocked(outCs_, outFurniture_, pkt); }
+void NetLink::queueBounty(const BountyPacket& pkt) { pushLocked(outCs_, outBounty_, pkt); }
 
 void NetLink::queueBuildPlace(const BuildPlacePacket& pkt) { pushLocked(outCs_, outBuildPlace_, pkt); }
 
@@ -916,6 +917,14 @@ void NetLink::threadLoop() {
                             u32 senderId = isHost_
                                 ? (u32)(size_t)ev.peer->data : (u32)0;
                             inbound_->pushFurniture(senderId, fp);
+                        }
+                    } else if (type == PKT_BOUNTY) {
+                        // Reliable host-authoritative bounty/crime row
+                        // (protocol 62), applied via the BountyManager levers.
+                        BountyPacket bp;
+                        if (readPacket(ev.packet->data, (unsigned)ev.packet->dataLength, &bp)
+                            && inbound_) {
+                            inbound_->pushBounty(bp.ownerId, bp);
                         }
                     } else if (type == PKT_BUILD_PLACE) {
                         // Reliable placed-building announcement (protocol 27):
@@ -1734,6 +1743,27 @@ void NetLink::threadLoop() {
             }
         }
 
+        // Drain + send any queued bounty/crime rows on CH_RELIABLE (protocol
+        // 62). Host -> joins only (the Replicator only publishes on the host);
+        // change-gated + safety-resent by the caller, so a settled wanted level
+        // is near-silent. A lost row would leave a bounty diverged until the
+        // safety resend, so reliable is the right channel.
+        std::vector<BountyPacket> bountyPkts;
+        EnterCriticalSection(&outCs_);
+        bountyPkts.swap(outBounty_);
+        LeaveCriticalSection(&outCs_);
+        for (size_t i = 0; i < bountyPkts.size(); ++i) {
+            ENetPacket* out = enet_packet_create(&bountyPkts[i], sizeof(BountyPacket),
+                                                 ENET_PACKET_FLAG_RELIABLE);
+            if (isHost_) {
+                enet_host_broadcast(enetHost_, CH_RELIABLE, out);
+            } else if (serverPeer_ && serverPeer_->state == ENET_PEER_STATE_CONNECTED) {
+                enet_peer_send(serverPeer_, CH_RELIABLE, out);
+            } else {
+                enet_packet_destroy(out);
+            }
+        }
+
         // Drain + send any queued runtime-fixture identity rows on CH_RELIABLE
         // (protocol 55). SYMMETRIC: the pose path is bidirectional, so each side
         // must be able to translate the other's fixture hands.
@@ -1774,6 +1804,13 @@ void NetLink::threadLoop() {
 
         // Drain + send Host-canonical placed-building announcements + progress
         // rows on CH_RELIABLE (protocol 60). The Join never publishes state.
+        // Drain + send any queued placed-building announcements + progress
+        // rows on CH_RELIABLE (protocol 27). PLACE is a one-shot describe/mint
+        // edge (a lost one strands an invisible building on the peer - the
+        // protocol-21 lesson); STATE rows are change-gated by the Replicator
+        // (~1 Hz sample, 10 s safety resend while incomplete), so the channel
+        // is silent once every site completes. Same-channel ordered-reliable
+        // guarantees a STATE row never arrives before its PLACE.
         std::vector<BuildPlacePacket> buildPlacePkts;
         std::vector<BuildStatePacket> buildStatePkts;
         EnterCriticalSection(&outCs_);

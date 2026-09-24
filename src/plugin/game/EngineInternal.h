@@ -324,6 +324,11 @@ typedef void  (__fastcall* RelSetFn)(FactionRelations* self, Faction* who, float
 typedef bool  (__fastcall* RelBoolFn)(FactionRelations* self, Faction* c);
 typedef void (__fastcall* AffectRelEvFn)(FactionRelations* self, Faction* p, int e, float mult);
 typedef void (__fastcall* AffectRelAmtFn)(FactionRelations* self, Faction* p, float amount, float mult);
+// Protocol 62 bounty/crime write levers (BountyManager, inline at Character+0xF0;
+// non-virtual, resolved like every other engine call via GetRealAddress).
+typedef void (__fastcall* BountyAddFn)(BountyManager* self, Faction* enforcer, int amount);
+typedef void (__fastcall* BountyClearFn)(BountyManager* self, Faction* enforcer);
+typedef int  (__fastcall* BountyGetFn)(BountyManager* self, Faction* whosLooking);
 
 // honest-pose / body-state / combat reads
 typedef Ogre::Vector3* (__fastcall* GetBip01Fn)(Character* self, Ogre::Vector3* ret);
@@ -563,6 +568,9 @@ extern RelGetFn         g_relGetFn;
 extern RelSetFn         g_relSetFn;
 extern RelBoolFn        g_relIsEnemyFn;
 extern RelBoolFn        g_relIsAllyFn;
+extern BountyAddFn      g_bountyAddFn;   // protocol 62: unfairAddToBounty
+extern BountyClearFn    g_bountyClearFn; // protocol 62: clearBounty
+extern BountyGetFn      g_bountyGetFn;   // protocol 62: getActualBounty
 extern std::vector<FactionDeltaRec> g_facDeltas;
 extern AffectRelEvFn  g_affectEvOrig;
 extern AffectRelAmtFn g_affectAmtOrig;

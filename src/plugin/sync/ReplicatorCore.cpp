@@ -91,6 +91,7 @@ Replicator::Replicator()
       researchSeqOut_(1), researchSampleMs_(0), researchSync_(true),
       deedSeqOut_(1), deedSampleMs_(0), deedAuditMs_(0), deedSync_(true),
       fixtureSeqOut_(1), fixtureSampleMs_(0), fixtureSync_(true),
+      bountySeqOut_(1), bountySampleMs_(0), bountySync_(true), bountyBaseline_(false),
       invSaveFencePending_(0), storeSync_(false), contCensusMs_(0),
       timeSync_(true), timeBrake_(true),
       timeSlew_(1.0f), timeSeqOut_(1), timeSeqSeen_(0),
