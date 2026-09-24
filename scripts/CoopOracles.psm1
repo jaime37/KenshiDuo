@@ -20,6 +20,14 @@
 # clocks disagree. Logs without CLOCKSYNC lines get offset 0 (the legacy
 # same-machine behaviour).
 
+# Culture: every log the plugin writes formats numbers with '.' (C++ printf),
+# and every oracle here parses those numbers back with [double] casts. Under a
+# comma-decimal locale (es-ES, de-DE, ...) both the casts and any -f formatting
+# in fixtures silently misread "109.00", so the whole library pins the calling
+# thread to InvariantCulture at import: one place, every parse/format below is
+# covered, and live-run analysis gets the same guarantee.
+[System.Threading.Thread]::CurrentThread.CurrentCulture = [System.Globalization.CultureInfo]::InvariantCulture
+
 # ---- Gate result infrastructure ---------------------------------------------
 
 $script:Gates = New-Object System.Collections.ArrayList
