@@ -616,15 +616,30 @@ MyGUI::TextBox* g_overlay      = 0; // the label that actually draws the text
 int             g_overlayState = -1;
 std::string     g_overlayText;
 
+// Ephemeral toast label state (peer connect/disconnect transitions). A SEPARATE
+// floating-label box from the persistent banner above, driven the same way but
+// pinned a few pixels BELOW it so both can show at once without overlapping.
+// Adapted to the spike-48 banner render path during the PR #24 merge: the PR
+// targeted the old character-tracked ScreenLabel (needs a player leader), which
+// main replaced with this fixed corner banner; a second floating label keeps the
+// toast working at the title screen too, same as the banner.
+const int kToastY = kOverlayY + kOverlayH + 4;
+
+MyGUI::Window*  g_toastBox   = 0; // container: geometry + layer attachment
+MyGUI::TextBox* g_toast      = 0; // the label that actually draws the text
+int             g_toastState = -1;
+std::string     g_toastText;
+
 int overlayColorId(int state) { return state == 2 ? 0 : (state == 1 ? 2 : 1); }
 
 // Put the freshly-minted container in its pixel box and mint the label inside it.
 // createLabelAbs takes its text by const-ref and MyGUI::Align is a trivial int
 // wrapper (no destructor), so this whole frame is SEH-safe - the same rule
-// dbgColourSeh follows for MyGUI::Colour.
-MyGUI::TextBox* overlayBuildSeh(MyGUI::Window* box, const std::string* text) {
+// dbgColourSeh follows for MyGUI::Colour. y is the box's top edge in pixels so
+// the banner and the toast can stack without overlapping.
+MyGUI::TextBox* overlayBuildSeh(MyGUI::Window* box, const std::string* text, int y) {
     __try {
-        box->setCoord(kOverlayX, kOverlayY, kOverlayW, kOverlayH);
+        box->setCoord(kOverlayX, y, kOverlayW, kOverlayH);
         box->setVisible(true);
         MyGUI::TextBox* l = ::gui->createLabelAbs(box, 0, 0, kOverlayW, kOverlayH,
                                                   *text, MyGUI::Align::Left);
@@ -682,7 +697,7 @@ void coopOverlayTick(const char* text, int state, bool show) {
             coop::logErrLine("[coop-ui] banner container FAILED");
             return;
         }
-        g_overlay = overlayBuildSeh(g_overlayBox, &t);
+        g_overlay = overlayBuildSeh(g_overlayBox, &t, kOverlayY);
         char b[96];
         _snprintf(b, sizeof(b) - 1, "[coop-ui] banner box=%p label=%p",
                   (void*)g_overlayBox, (void*)g_overlay);
@@ -708,6 +723,51 @@ void coopOverlayTick(const char* text, int state, bool show) {
             // note above). Forget them and re-mint on the next tick.
             g_overlayBox = 0; g_overlay = 0;
             g_overlayState = -1; g_overlayText.clear();
+        }
+    }
+}
+
+void coopToastTick(const char* text, int state, bool show) {
+    ForgottenGUI* g = ::gui;
+    if (!g) return;
+
+    if (!show) {
+        if (g_toastBox) {
+            overlayDestroySeh(g, g_toastBox);
+            g_toastBox = 0; g_toast = 0;
+            g_toastState = -1; g_toastText.clear();
+        }
+        return;
+    }
+
+    std::string t = text ? std::string(text) : std::string();
+    if (!g_toast) {
+        // Same floating-label render path as the banner above (createFloatingLabel
+        // on the "Info" layer + overlayBuildSeh), pinned just below it so the pop
+        // never overlaps the persistent status line. No leader needed, so it shows
+        // at the title screen too. No mint logging: the toast is ephemeral.
+        if (g_toastBox) { overlayDestroySeh(g, g_toastBox); g_toastBox = 0; }
+        std::string layer = "Info";
+        std::string empty;
+        g_toastBox = g->createFloatingLabel(0.01f, 0.05f, 0.30f, 0.03f, empty,
+                                            MyGUI::Align::Default, layer);
+        if (!g_toastBox) return;
+        g_toast = overlayBuildSeh(g_toastBox, &t, kToastY);
+        if (!g_toast) return;
+        g_toastState = -1;   // no caller state is -1: forces the caption pass
+        g_toastText.clear();
+    }
+
+    if (t != g_toastText || state != g_toastState) {
+        MyGUI::Colour col; markerColour(overlayColorId(state), &col);
+        MyGUI::UString u(t.c_str());
+        if (overlayUpdateSeh(g_toast, &u, &col)) {
+            g_toastText = t; g_toastState = state;
+        } else {
+            // Same dangling-widget lesson as the banner: the GUI destroyed the
+            // widgets under us (world load); forget them and re-mint next tick.
+            g_toastBox = 0; g_toast = 0;
+            g_toastState = -1; g_toastText.clear();
         }
     }
 }
