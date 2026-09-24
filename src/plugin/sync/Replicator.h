@@ -2032,11 +2032,14 @@ private:
     //              echo guard: an applied row is never re-detected as local).
     // lastSendVal/lastSendMs = change gate + safety resend (rows never sent
     //              never resend, so a settled diplomacy is silent).
-    // seqSeen    = newest per-sender seq applied (stale-row guard).
+    // seqSeen    = newest seq applied PER SENDER (keyed by the packet's
+    //              ownerId; both clients publish this symmetric channel with
+    //              INDEPENDENT counters, so one shared counter would let a
+    //              faster sender starve the slower one's rows as "stale").
     struct FacRow {
         float known; float lastSendVal; unsigned long lastSendMs;
-        u32 seqSeen; bool seeded;
-        FacRow() : known(0), lastSendVal(0), lastSendMs(0), seqSeen(0), seeded(false) {}
+        std::map<u32, u32> seqSeen; bool seeded;
+        FacRow() : known(0), lastSendVal(0), lastSendMs(0), seeded(false) {}
     };
     std::map<std::string, FacRow> facRows_;
     u32           facSeqOut_;
@@ -2045,15 +2048,18 @@ private:
     // Protocol 26/57 baked-door state + intent tracking. known* is the latest
     // Host-canonical pair. Host uses lastSendMs/intentSeen for state publication
     // and idempotent request handling; Join uses seqSeen/pending* for canonical
-    // row ordering and one outstanding optimistic request per door.
+    // row ordering and one outstanding optimistic request per door. seqSeen is a
+    // PER-SENDER stale-row guard (StaleGuard.h, keyed by the packet's ownerId):
+    // both clients can publish this channel with INDEPENDENT counters, so one
+    // shared counter would let a faster sender starve the slower one's rows.
     struct DoorRow {
         int knownOpen; int knownLocked; unsigned long lastSendMs;
-        u32 seqSeen; bool seeded;
+        std::map<u32, u32> seqSeen; bool seeded;
         std::map<u32, u32> intentSeen; // Host: newest request seq per Join
         u32 pendingSeq; int pendingOpen; int pendingLocked;
         unsigned long pendingSendMs;
         DoorRow() : knownOpen(-1), knownLocked(-1), lastSendMs(0),
-                    seqSeen(0), seeded(false), pendingSeq(0),
+                    seeded(false), pendingSeq(0),
                     pendingOpen(-1), pendingLocked(-1), pendingSendMs(0) {}
     };
     std::map<Key, DoorRow> doorRows_;
@@ -2134,15 +2140,16 @@ private:
     unsigned long buildSampleMs_;
     bool          buildSync_;
     // Protocol 28/57 placed-door rows on the translated (building key,index)
-    // identity, with the same canonical/pending contract as DoorRow.
+    // identity, with the same canonical/pending contract as DoorRow (seqSeen
+    // per-sender for the same reason: both sides can publish).
     struct BdoorRow {
         int knownOpen; int knownLocked; unsigned long lastSendMs;
-        u32 seqSeen; bool seeded;
+        std::map<u32, u32> seqSeen; bool seeded;
         std::map<u32, u32> intentSeen;
         u32 pendingSeq; int pendingOpen; int pendingLocked;
         unsigned long pendingSendMs;
         BdoorRow() : knownOpen(-1), knownLocked(-1), lastSendMs(0),
-                     seqSeen(0), seeded(false), pendingSeq(0),
+                     seeded(false), pendingSeq(0),
                      pendingOpen(-1), pendingLocked(-1), pendingSendMs(0) {}
     };
     std::map<std::pair<Key, int>, BdoorRow> bdoorRows_;
