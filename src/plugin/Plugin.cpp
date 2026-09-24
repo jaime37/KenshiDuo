@@ -746,7 +746,14 @@ void driveLoadSync(GameWorld* gw) {
             char name[sizeof(it->pkt.name) + 1];
             memcpy(name, it->pkt.name, sizeof(it->pkt.name));
             name[sizeof(it->pkt.name)] = '\0';
-            if (!name[0]) continue;
+            if (!coop::savexfer::netSaveNameAdmitted(name)) {
+                char b[144];
+                _snprintf(b, sizeof(b) - 1,
+                          "[load] REQ from join id=%u name='%s' REFUSED (unsafe name)",
+                          it->pkt.reqId, name);
+                b[sizeof(b) - 1] = '\0'; coopErr(b);
+                continue;
+            }
             if (coop::savexfer::folderFingerprint(name) == 0) {
                 char b[144];
                 _snprintf(b, sizeof(b) - 1,
@@ -773,6 +780,14 @@ void driveLoadSync(GameWorld* gw) {
             char name[sizeof(it->pkt.name) + 1];
             memcpy(name, it->pkt.name, sizeof(it->pkt.name));
             name[sizeof(it->pkt.name)] = '\0';
+            if (!coop::savexfer::netSaveNameAdmitted(name)) {
+                char rb[176];
+                _snprintf(rb, sizeof(rb) - 1,
+                          "[load] NACK id=%u name='%s' REFUSED (unsafe name)",
+                          it->pkt.loadId, name);
+                rb[sizeof(rb) - 1] = '\0'; coopErr(rb);
+                continue;
+            }
             char b[176];
             if (it->pkt.loadId != g_loadIdOut) {
                 _snprintf(b, sizeof(b) - 1,
@@ -826,7 +841,14 @@ void driveLoadSync(GameWorld* gw) {
             char name[sizeof(it->pkt.name) + 1];
             memcpy(name, it->pkt.name, sizeof(it->pkt.name));
             name[sizeof(it->pkt.name)] = '\0';
-            if (!name[0]) continue;
+            if (!coop::savexfer::netSaveNameAdmitted(name)) {
+                char b[144];
+                _snprintf(b, sizeof(b) - 1,
+                          "[load] GO id=%u name='%s' REFUSED (unsafe name)",
+                          it->pkt.loadId, name);
+                b[sizeof(b) - 1] = '\0'; coopErr(b);
+                continue;
+            }
             coop::u32 fp = coop::savexfer::folderFingerprint(name);
             char b[192];
             if (!s_forceStream && fp != 0 && fp == it->pkt.fingerprint) {

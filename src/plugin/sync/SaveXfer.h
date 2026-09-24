@@ -50,6 +50,15 @@ void setSaveRootForTest(const std::string& root);
 // EVERY local save on the join (squad1, autosaves, _current, ...).
 bool saveNameSafe(const std::string& name);
 
+// Admission gate for a save name that ARRIVED OVER THE NETWORK (MP-P-14).
+// Shared by every such path in Plugin.cpp - the host's LOAD_REQ handler, the
+// join's LOAD_GO handler and the host's LOAD_NACK -> fallback-transfer
+// handler - so all of them refuse the same names BEFORE any on-disk path,
+// engine load or folder stream is derived from them (a join could otherwise
+// ask the host to load or stream a folder outside the save root). Same
+// predicate as the BEGIN receiver above: one rule, one place.
+bool netSaveNameAdmitted(const std::string& name);
+
 // Crash recovery for the coordinated-commit swap. onSaveDone commits by moving
 // save/<name>/ out to save/<name>__old/ and then the verified staging in. If
 // the process died - or a move faulted - inside that window, the real save is

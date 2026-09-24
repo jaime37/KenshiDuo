@@ -185,6 +185,20 @@ void testSaveXfer() {
     SXCHECK("saveNameSafe rejects ..",            !savexfer::saveNameSafe(".."));
     SXCHECK("saveNameSafe rejects drive",         !savexfer::saveNameSafe("C:x"));
 
+    // --- 0b. network save-name admission (MP-P-14) ----------------------------
+    // The single gate every network-carried save name must pass in Plugin.cpp:
+    // host LOAD_REQ, join LOAD_GO and host LOAD_NACK (which feeds beginSend).
+    SXCHECK("netSaveNameAdmitted accepts a normal slot",
+            savexfer::netSaveNameAdmitted("coopresume"));
+    SXCHECK("netSaveNameAdmitted rejects empty (LOAD_REQ)",
+            !savexfer::netSaveNameAdmitted(""));
+    SXCHECK("netSaveNameAdmitted rejects .. (LOAD_GO)",
+            !savexfer::netSaveNameAdmitted(".."));
+    SXCHECK("netSaveNameAdmitted rejects traversal (LOAD_NACK)",
+            !savexfer::netSaveNameAdmitted("..\\..\\squad1"));
+    SXCHECK("netSaveNameAdmitted rejects absolute/drive",
+            !savexfer::netSaveNameAdmitted("C:\\evil"));
+
     // --- A. CRC-invalid transfer must leave an EXISTING save byte-intact ------
     // (documents the core CRC-failure invariant; the join keeps its own save.)
     {

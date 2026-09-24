@@ -276,6 +276,10 @@ bool saveNameSafe(const std::string& name) {
     return true;
 }
 
+bool netSaveNameAdmitted(const std::string& name) {
+    return saveNameSafe(name);
+}
+
 void recoverStrandedSave(const std::string& name) {
     if (!saveNameSafe(name)) return; // never touch anything for an unsafe name
     std::string finalDir = saveFolderFor(name);
