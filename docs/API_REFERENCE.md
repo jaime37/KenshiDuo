@@ -17,7 +17,7 @@
 > Sections that describe that stack are kept for historical context only. The
 > live equivalents are: transport `net/NetLink`, the main-thread bridge
 > `core/Inbound`, the wire protocol `netproto/Wire.h` (history in
-> `resources/PROTOCOL_HISTORY.md`), and the scenario runner in
+> `docs/PROTOCOL_HISTORY.md`), and the scenario runner in
 > `src/plugin/test/` (Harness build only). Canonical copy:
 > [`resources/resources.md`](../resources/resources.md).
 

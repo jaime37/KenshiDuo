@@ -3,8 +3,7 @@
 > **Purpose.** Hard-won failure modes in KenshiCoop's item/world replication, and
 > the testing habits that did or did not catch them. Each entry states a rule, the
 > concrete bug that produced it, and the signature to grep for. This is not a
-> changelog — per-protocol narrative lives in `resources/PROTOCOL_HISTORY.md`
-> (which is untracked, hence this file).
+> changelog — per-protocol narrative lives in `docs/PROTOCOL_HISTORY.md`.
 >
 > Most entries generalise past items: they are really about drawing conclusions
 > from engine reads, and about writing gates that can fail.
