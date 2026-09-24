@@ -242,6 +242,7 @@ void Replicator::resetSession() {
     furnitureHostPend_.clear();
     furnitureIntentSeqOut_ = 1;
     furnitureStateSeqOut_ = 1;
+    ownCarriedNoSee_.clear(); // 16b owner-side carry heal: old world's anchors
     // Session maps + change-gate baselines (they describe the OLD world; the
     // reloaded save re-seeds them on first sample).
     ownBuilds_.clear();
