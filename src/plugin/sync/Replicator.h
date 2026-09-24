@@ -2292,11 +2292,11 @@ private:
     // zero-initialized, and a garbage latch flag cost a debugging session.
     struct DeedRow {
         unsigned long lastSendMs;
-        u32  seqSeen;
+        std::map<u32, u32> seqSeen; // per-sender high-water mark (StaleGuard.h)
         bool sent;
         bool applied;
         int  knownOwned;
-        DeedRow() : lastSendMs(0), seqSeen(0), sent(false), applied(false),
+        DeedRow() : lastSendMs(0), sent(false), applied(false),
                     knownOwned(-1) {}
     };
     std::map<Key, DeedRow> deedRows_;
@@ -2323,8 +2323,10 @@ private:
         FixOut() : lastSendMs(0), sent(false) {}
     };
     struct FixtureRow {
-        unsigned int hand[5]; bool resolved; u32 seqSeen; unsigned long lastMissMs;
-        FixtureRow() : resolved(false), seqSeen(0), lastMissMs(0) {
+        unsigned int hand[5]; bool resolved;
+        std::map<u32, u32> seqSeen; // per-sender high-water mark (StaleGuard.h)
+        unsigned long lastMissMs;
+        FixtureRow() : resolved(false), lastMissMs(0) {
             hand[0] = hand[1] = hand[2] = hand[3] = hand[4] = 0;
         }
     };

@@ -2030,6 +2030,25 @@ static void testStaleGuard() {
         CHECK("shared counter would drop B's row (the bug)", bDropped);
     }
 
+    // MP-P-15: the deed (protocol 54) and fixture (55) channels are symmetric
+    // too (hostAuth=false: both roles publish the same row with independent
+    // counters) but kept the pre-fix scalar guard until 2026-09-24. Replay the
+    // exact starvation trace on their row shape: the host has resent a fixture
+    // row up to seq=37 (15 s safety resends), the join's FIRST publish of the
+    // same row is seq=1 and must still land.
+    {
+        std::map<unsigned int, unsigned int> row;
+        CHECK("deed/fixture: fast host seq=37 applies",
+              staleRowAccept(row, A, 37));
+        CHECK("deed/fixture: slow join seq=1 still applies (MP-P-15)",
+              staleRowAccept(row, B, 1));
+        unsigned int sharedSeen = 0;  // pre-fix DeedRow/FixtureRow::seqSeen (one u32)
+        sharedSeen = 37;              // host's seq=37 row applied
+        bool joinDropped = (sharedSeen != 0 && 1u <= sharedSeen);
+        CHECK("deed/fixture: scalar guard would drop the join's row (the bug)",
+              joinDropped);
+    }
+
     // Interleaving: both sides toggling the same door alternately - every
     // fresh packet from either side lands, every safety resend drops, and
     // neither counter ever disturbs the other's progress.

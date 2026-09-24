@@ -1655,8 +1655,7 @@ void Replicator::applyDeeds(const SyncContext& ctx) {
             peerBuilds_.find(k) != peerBuilds_.end())
             continue;
         DeedRow& dr = deedRows_[k];
-        if (!sync::gateSeqAccept(dr.seqSeen, p.seq)) continue; // stale/dup row
-        dr.seqSeen = p.seq;
+        if (!staleRowAccept(dr.seqSeen, p.ownerId, p.seq)) continue; // stale/dup row (this sender)
         int want = p.owned ? 1 : 0;
         if (dr.applied && dr.knownOwned == want) continue; // converged; resend no-op
         engine::DeedRead cur;
@@ -1757,8 +1756,7 @@ void Replicator::applyFixtures(const SyncContext& ctx) {
         Key k; k.t = p.hand[0]; k.c = p.hand[1]; k.cs = p.hand[2];
         k.i = p.hand[3]; k.s = p.hand[4];
         FixtureRow& fr = fixtureMap_[k];
-        if (!sync::gateSeqAccept(fr.seqSeen, p.seq)) continue; // stale/dup row
-        fr.seqSeen = p.seq;
+        if (!staleRowAccept(fr.seqSeen, p.ownerId, p.seq)) continue; // stale/dup row (this sender)
         if (fr.resolved) continue; // identity is permanent; resends are no-ops
 
         // Save-baked machines DO cross by hand, and those rows are the majority
