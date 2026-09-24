@@ -25,6 +25,7 @@
 
 #include "../netproto/Wire.h"
 #include "../netproto/ContentHash.h"
+#include "../netproto/HostIntent.h"
 #include "../plugin/sync/Interp.h"
 #include "../plugin/core/OwnRanks.h"
 #include "../plugin/core/SteamId.h"
@@ -123,6 +124,7 @@ static void testSizes() {
     CHECK_EQ("sizeof(ResearchPacket)",          sizeof(ResearchPacket),          57); // v37: research
     CHECK_EQ("sizeof(DeedPacket)",              sizeof(DeedPacket),              78); // v54: deeds
     CHECK_EQ("sizeof(FixturePacket)",           sizeof(FixturePacket),           90); // v55: fixture identity
+    CHECK_EQ("sizeof(FurniturePacket)",         sizeof(FurniturePacket),         60); // v58: bed/cage intent+state
     CHECK_EQ("sizeof(CamHintPacket)",           sizeof(CamHintPacket),           17); // v43: camera hint
     CHECK_EQ("sizeof(CellClaimPacket)",         sizeof(CellClaimPacket),         21); // v49: cell claim
     CHECK_EQ("sizeof(InvXferAckPacket)",        sizeof(InvXferAckPacket),        18); // v50: transfer verdict
@@ -315,8 +317,8 @@ static void testSizes() {
     CHECK_EQ("EVT_SQUAD_MOVE id", (int)EVT_SQUAD_MOVE, 11);
     CHECK("EVT_SQUAD_MOVE distinct", EVT_SQUAD_MOVE != EVT_RECRUIT &&
           EVT_SQUAD_MOVE != EVT_NONE && EVT_SQUAD_MOVE != EVT_EXIT_FURNITURE);
-    CHECK_EQ("PROTOCOL_VERSION (v58: host-validated door intents)",
-             (int)PROTOCOL_VERSION, 58);
+    CHECK_EQ("PROTOCOL_VERSION (v59: host-canonical furniture)",
+             (int)PROTOCOL_VERSION, 59);
 
     // Protocol 56: save-native pickup notice. The ownership filter (protocol 55)
     // keeps owned town/shop items out of the stream, so their pickup needs its own
@@ -351,6 +353,11 @@ static void testSizes() {
           (int)PKT_DOOR_INTENT == 51 && PKT_DOOR_INTENT != PKT_DOOR &&
           PKT_DOOR_INTENT != PKT_BUILD_DOOR && PKT_DOOR_INTENT != PKT_FIXTURE &&
           PKT_DOOR_INTENT != PKT_PROD_INTENT);
+    // Protocol 59: host-canonical bed/cage occupancy; same shift, tag 52.
+    CHECK_EQ("PKT_FURNITURE id", (int)PKT_FURNITURE, 52);
+    CHECK("PKT_FURNITURE distinct",
+          PKT_FURNITURE != PKT_DOOR_INTENT && PKT_FURNITURE != PKT_PROD_INTENT);
+    CHECK("furniture modes distinct", FURNITURE_INTENT != FURNITURE_STATE);
 
     // Protocol 52: the shared money pool. The two players spend from ONE wallet,
     // so the join reports CHANGES and the host the authoritative TOTAL - swap
@@ -537,6 +544,7 @@ static void testRoundTrips() {
     roundTrip<ResearchPacket>("ResearchPacket", (u8)PKT_RESEARCH);
     roundTrip<DeedPacket>("DeedPacket", (u8)PKT_DEED);
     roundTrip<FixturePacket>("FixturePacket", (u8)PKT_FIXTURE);
+    roundTrip<FurniturePacket>("FurniturePacket", (u8)PKT_FURNITURE);
     roundTrip<CellClaimPacket>("CellClaimPacket", (u8)PKT_CELL_CLAIM);
     roundTrip<InvXferAckPacket>("InvXferAckPacket", (u8)PKT_INV_XFER_ACK);
 
@@ -1469,6 +1477,7 @@ static void testFlushWorldStateContract() {
     ResearchPacket  rp;  std::memset(&rp,  0, sizeof(rp));
     DeedPacket      de;  std::memset(&de,  0, sizeof(de));
     FixturePacket   fx;  std::memset(&fx,  0, sizeof(fx));
+    FurniturePacket fn;  std::memset(&fn,  0, sizeof(fn));
     BuildPlacePacket  bp; std::memset(&bp,  0, sizeof(bp));
     BuildStatePacket  bs; std::memset(&bs,  0, sizeof(bs));
     BuildDoorPacket   bd; std::memset(&bd,  0, sizeof(bd));
@@ -1516,6 +1525,7 @@ static void testFlushWorldStateContract() {
     in.pushResearch(1, rp);
     in.pushDeed(1, de);
     in.pushFixture(1, fx);
+    in.pushFurniture(1, fn);
     in.pushBuildPlace(1, bp);
     in.pushBuildState(1, bs);
     in.pushBuildDoor(1, bd);
@@ -1571,6 +1581,7 @@ static void testFlushWorldStateContract() {
     WS_EMPTY("research",    InboundResearch,    drainResearch);
     WS_EMPTY("deed",        InboundDeed,        drainDeed);
     WS_EMPTY("fixture",     InboundFixture,     drainFixture);
+    WS_EMPTY("furniture",   InboundFurniture,   drainFurniture);
     WS_EMPTY("buildPlace",  InboundBuildPlace,  drainBuildPlace);
     WS_EMPTY("buildState",  InboundBuildState,  drainBuildState);
     WS_EMPTY("buildDoor",   InboundBuildDoor,   drainBuildDoor);
