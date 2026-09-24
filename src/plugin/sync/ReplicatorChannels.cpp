@@ -14,6 +14,7 @@
 #include "../core/BuildOwnership.h"
 #include "../core/HostIntent.h"
 #include "../core/StaleGuard.h"
+#include "../core/ResearchUnion.h" // protocol 38 symmetric grow-only union
 
 namespace coop {
 
@@ -1457,9 +1458,10 @@ void Replicator::applyResearch(const SyncContext& ctx) {
         sid[sizeof(sid) - 1] = '\0';
         if (!sid[0]) continue;
         ResearchRow& rr = researchRows_[std::string(sid)];
-        if (!sync::gateSeqAccept(rr.seqSeen, p.seq)) continue; // stale/dup row
-        rr.seqSeen = p.seq;
-        if (rr.applied) continue; // landed earlier; resends are no-ops
+        // Grow-only union (ResearchUnion.h): a stale/dup row drops; a resend
+        // of an already-landed sid advances the guard but never re-applies.
+        if (researchRowDecision(rr.seqSeen, p.seq, rr.applied) != RESEARCH_ROW_APPLY)
+            continue;
         int known = -1, can = -1;
         int rc = engine::researchQueryBySid(gw, sid, &known, &can);
         if (rc != 1) continue; // store/levers not up yet; the resend retries
@@ -2407,7 +2409,12 @@ void Replicator::driveSampledChannels(const SyncContext& ctx) {
         // so a pairing that arrives this tick is usable by the very next row.
         { &Replicator::fixtureSync_,  0,                     &Replicator::publishFixtures,   &Replicator::applyFixtures,   false },
         { &Replicator::prodSync_,     0,                     &Replicator::publishProd,       &Replicator::applyProd,       true  },
-        { &Replicator::researchSync_, 0,                     &Replicator::publishResearch,   &Replicator::applyResearch,   true  },
+        // Research runs as a SYMMETRIC grow-only union (ResearchUnion.h): both
+        // sides publish their known set AND apply the peer's. Knowing a sid
+        // can never be un-known, so the union converges without arbitration
+        // and a research completed by the JOIN now reaches the host (it was
+        // hostAuth=true, one-directional host->join).
+        { &Replicator::researchSync_, 0,                     &Replicator::publishResearch,   &Replicator::applyResearch,   researchChannelHostAuth() },
         { &Replicator::deedSync_,     0,                     &Replicator::publishDeeds,      &Replicator::applyDeeds,      false }
     };
     // Protocol 56 command path brackets the ordinary host-authoritative state

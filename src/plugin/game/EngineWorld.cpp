@@ -13,6 +13,7 @@
 // (see resources/CODE_MAP.md).
 
 #include "EngineInternal.h"
+#include "ProdTemplateMatch.h" // es_ES/stringID building-template matching (pure)
 
 namespace coop {
 namespace engine {
@@ -1435,26 +1436,20 @@ static GameData* findProdTemplate(GameWorld* gw, int kind, int skip) {
     g_dataScratch.clear();
     g_getDataOfTypeFn(&gw->gamedata, &g_dataScratch, BUILDING);
     unsigned int n = g_dataScratch.size();
-    const char* genPrefs[]   = { "small wind generator", "wind generator",
-                                 "small generator", "generator" };
-    const char* craftPrefs[] = { "armour crafting bench", "weapon smithing bench",
-                                 "weapon smith", "engineering bench" };
-    const char* storePrefs[] = { "general storage", "storage box", "storage chest",
-                                 "chest", "storage" };
-    const char* resPrefs[]   = { "small research bench", "research bench",
-                                 "research" };
-    const char** prefs;
-    unsigned int nPrefs;
-    if (kind == 0)      { prefs = genPrefs;   nPrefs = 4; }
-    else if (kind == 2) { prefs = storePrefs; nPrefs = 5; }
-    else if (kind == 3) { prefs = resPrefs;   nPrefs = 3; }
-    else                { prefs = craftPrefs; nPrefs = 4; }
+    // Preference lists + matching live in ProdTemplateMatch.h (pure, unit
+    // tested). On an es_ES game the display NAME is translated, so a candidate
+    // matches by name (English OR Spanish terms) OR by stringID - the internal
+    // FCS id, stable and language-independent (fixes "no template" on es_ES).
+    unsigned int nPrefs = 0;
+    const char* const* prefs = prodtmpl::prefsForKind(kind, &nPrefs);
     GameData* seen[16];
     unsigned int nSeen = 0;
     for (unsigned int k = 0; k < nPrefs; ++k) {
         for (unsigned int i = 0; i < n; ++i) {
             GameData* gd = g_dataScratch[i];
-            if (!gd || !ciContains(gd->name.c_str(), prefs[k])) continue;
+            if (!gd || !prodtmpl::matches(gd->name.c_str(),
+                                          gd->stringID.c_str(), prefs[k]))
+                continue;
             bool dup = false; // a name can match several prefs
             for (unsigned int s = 0; s < nSeen; ++s)
                 if (seen[s] == gd) { dup = true; break; }

@@ -40,6 +40,8 @@
 #include "../plugin/core/BuildOwnership.h" // protocol-27 peer-copy ownership policy
 #include "../plugin/sync/SaveXfer.h"     // Part A: real save-transfer receiver end-to-end
 #include "../plugin/core/StaleGuard.h"   // per-sender stale-row guard (symmetric channels)
+#include "../plugin/core/ResearchUnion.h" // protocol 38 symmetric grow-only union
+#include "../plugin/game/ProdTemplateMatch.h" // es_ES/stringID template matching
 
 #include <set>
 #include <string>
@@ -2020,6 +2022,88 @@ static void testStaleGuard() {
     }
 }
 
+static void testResearchUnion() {
+    std::printf("== research symmetric grow-only union (ResearchUnion.h) ==\n");
+
+    // Channel direction contract: the union is SYMMETRIC, not host-
+    // authoritative - both sides publish their known set AND apply the
+    // peer's, so a research completed by the JOIN reaches the host.
+    CHECK("research channel is symmetric (hostAuth=false)",
+          !researchChannelHostAuth());
+
+    // First sight of a sid applies and advances the scalar guard.
+    unsigned int seqSeen = 0;
+    CHECK("first row applies",
+          researchRowDecision(seqSeen, 7, false) == RESEARCH_ROW_APPLY);
+    CHECK("guard advanced on first row", seqSeen == 7);
+
+    // Idempotence: applying the SAME row twice breaks nothing - the dup drops.
+    CHECK("same row again drops (idempotent)",
+          researchRowDecision(seqSeen, 7, false) == RESEARCH_ROW_DROP_STALE);
+    CHECK("guard untouched by dup", seqSeen == 7);
+    CHECK("reordered straggler drops",
+          researchRowDecision(seqSeen, 3, false) == RESEARCH_ROW_DROP_STALE);
+
+    // A research that LANDED persists: a fresh resend advances the guard but
+    // never re-runs startResearch.
+    CHECK("landed resend skips re-apply",
+          researchRowDecision(seqSeen, 8, true) == RESEARCH_ROW_SKIP_LANDED);
+    CHECK("guard advanced by landed resend", seqSeen == 8);
+    CHECK("second landed resend still skips",
+          researchRowDecision(seqSeen, 9, true) == RESEARCH_ROW_SKIP_LANDED);
+
+    // A newer row for a sid whose lever has NOT landed yet still applies
+    // (the late-prerequisite retry path).
+    CHECK("not-landed newer row applies",
+          researchRowDecision(seqSeen, 10, false) == RESEARCH_ROW_APPLY);
+}
+
+static void testProdTemplateMatch() {
+    std::printf("== prod template matching es_ES/stringID (ProdTemplateMatch.h) ==\n");
+
+    // Every machine kind exposes a non-empty preference list; kind 1 (and any
+    // unknown kind) falls through to the crafting-bench list.
+    for (int kind = 0; kind < 4; ++kind) {
+        unsigned int n = 0;
+        const char* const* prefs = prodtmpl::prefsForKind(kind, &n);
+        CHECK("kind exposes prefs", prefs != 0 && n > 0);
+    }
+    unsigned int nCraft = 0;
+    const char* const* craft = prodtmpl::prefsForKind(1, &nCraft);
+    CHECK("kind 1 tops at armour crafting bench",
+          nCraft > 0 && std::strcmp(craft[0], "armour crafting bench") == 0);
+
+    // English display names still match (previous behaviour preserved).
+    CHECK("en name matches", prodtmpl::matches("Small Wind Generator", "",
+                                               "small wind generator"));
+
+    // es_ES display names match the Spanish terms (the "no template" fix).
+    CHECK("es name: generador",
+          prodtmpl::matches("Generador eolico pequeno", "", "generador"));
+    CHECK("es name: herreria",
+          prodtmpl::matches("Banco de herreria", "", "herreria"));
+    CHECK("es name: banco de",
+          prodtmpl::matches("Banco de herreria", "", "banco de"));
+    CHECK("es name: almacen",
+          prodtmpl::matches("Almacen general", "", "almacen"));
+    CHECK("es name: investigacion",
+          prodtmpl::matches("Mesa de investigacion", "", "investigaci"));
+
+    // stringID matches when the display name is in ANY other language (the
+    // internal FCS id is language-independent).
+    CHECK("stringID matches over unknown locale",
+          prodtmpl::matches("Windgenerator", "Small Wind Generator",
+                            "small wind generator"));
+
+    // Unrelated text never matches; null name/sid are tolerated.
+    CHECK("unrelated name+sid rejected",
+          !prodtmpl::matches("Rock", "rock", "generator"));
+    CHECK("null name tolerated",
+          prodtmpl::matches(0, "Research Bench", "research bench"));
+    CHECK("null sid tolerated",
+          prodtmpl::matches("Research Bench", 0, "research bench"));
+}
+
 int main() {
     std::printf("prototest: KenshiCoop wire/hash/interp unit layer (protocol v%u)\n",
                 (unsigned)PROTOCOL_VERSION);
@@ -2047,6 +2131,8 @@ int main() {
     testBuildOwnershipPolicy();
     testSaveXfer();
     testStaleGuard();
+    testResearchUnion();
+    testProdTemplateMatch();
     std::printf("\nprototest: %d/%d checks passed%s\n",
                 g_total - g_failed, g_total, g_failed ? " - FAIL" : " - PASS");
     return g_failed;

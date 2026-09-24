@@ -532,19 +532,25 @@ public:
     // Production machine sync master enable (KENSHICOOP_PROD_SYNC).
     void setProdSync(bool v) { prodSync_ = v; }
 
-    // BEFORE engine (protocol 38, HOST only - the tech-tree authority):
-    // sample the Research store's known set ~1 Hz (Research::isKnown over
-    // the shared RESEARCH GameData enumeration) and stream one PKT_RESEARCH
-    // row per known sid - first sight sends (the host's known set IS the
-    // session baseline), then a safety resend covers a lost row / a join
-    // whose apply lever needed prerequisites that arrived later.
+    // BEFORE engine (protocol 38): sample the Research store's known set ~1 Hz
+    // (Research::isKnown over the shared RESEARCH GameData enumeration) and
+    // stream one PKT_RESEARCH row per known sid - first sight sends, then a
+    // safety resend covers a lost row / a peer whose apply lever needed
+    // prerequisites that arrived later.
+    //
+    // SYMMETRIC UNION (grow-only CRDT set, ResearchUnion.h): BOTH sides publish
+    // AND apply. The known set only GROWS (startResearch never un-knows,
+    // applyResearch skips the already-known), so the union of both sets is
+    // conflict-free by construction - no arbitration or authority needed. It
+    // used to be one-directional host->join, so a research completed by the
+    // JOIN never reached the host; it now propagates both ways.
     void publishResearch(const SyncContext& ctx);
 
-    // BEFORE engine (protocol 38, join side): drain received known-research
-    // rows; sids already known locally are skipped (idempotent), the rest
-    // apply through Research::startResearch - the exact lever a research-UI
-    // click commits (flips isKnown in the same tick, spike 401). Per-sid
-    // seq guard drops stale rows.
+    // BEFORE engine (protocol 38): drain received known-research rows; sids
+    // already known locally are skipped (idempotent), the rest apply through
+    // Research::startResearch - the exact lever a research-UI click commits
+    // (flips isKnown in the same tick, spike 401). Per-sid seq guard drops
+    // stale rows. Runs on BOTH sides (see publishResearch: symmetric union).
     void applyResearch(const SyncContext& ctx);
 
     // Research tech-tree sync master enable (KENSHICOOP_RESEARCH_SYNC).
@@ -2197,10 +2203,24 @@ private:
     bool localHandForProdKey(int keyKind, const Key& wire,
                              unsigned int out[5]) const;
     // Protocol 38 known-research rows, keyed by the RESEARCH stringID (the
-    // cross-client-stable wire identity, spike 401). HOST: sent/lastSendMs =
-    // first-sight send + safety resend. JOIN: seqSeen = stale-row guard,
-    // applied = the local startResearch landed (isKnown flipped) so resends
-    // stop re-applying.
+    // cross-client-stable wire identity, spike 401). Research now runs as a
+    // grow-only CRDT union (kCh[] hostAuth=false, ResearchUnion.h): BOTH sides
+    // publish their known set AND apply what they receive, so a JOIN-side
+    // unlock reaches the host too (the old model was one-directional
+    // host->join). Per row: sent/lastSendMs = first-sight send + safety resend
+    // (our PUBLISH half); seqSeen = stale/dup-row guard, applied = the local
+    // startResearch landed (isKnown flipped) so resends stop re-applying (our
+    // APPLY half). Convergence is by idempotence - knowing a sid can never be
+    // "un-known", so there is no arbitration and message order does not
+    // matter.
+    // FUTURE (4-player): the SCALAR seqSeen guard is safe TODAY because a
+    // row's content is independent of the emitter (any sender asserting sid X
+    // means the exact same thing). With 3+ distinct emitters interleaving
+    // their own seq counters on one sid, this single per-row counter must be
+    // re-audited: a high seq from one peer can shadow a still-unapplied
+    // resend from another - harmless here ONLY because 'applied' latches on
+    // the first successful start, but a per-sender seqSeen would be the clean
+    // fix.
     struct ResearchRow {
         unsigned long lastSendMs;
         u32  seqSeen;
