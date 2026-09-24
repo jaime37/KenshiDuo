@@ -21,7 +21,7 @@ typedef float          f32;
 typedef double         f64;
 
 // Protocol version. The full version-by-version history (what each bump added
-// and why) lives in resources/PROTOCOL_HISTORY.md - keep it there, not here, so
+// and why) lives in docs/PROTOCOL_HISTORY.md - keep it there, not here, so
 // this header stays a definition file. When you bump PROTOCOL_VERSION, add the
 // matching entry at the bottom of that doc. The version is checked at handshake
 // and a mismatch is rejected (no back-compat).
