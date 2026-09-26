@@ -2057,7 +2057,17 @@ public:
         // The bag carrier: whichever squad member actually carries a container. Both clients
         // load the same save, so they resolve the SAME character and the same bag.
         have_ = findBagCarrier(ctx.gw, hand_, bagSid_, sizeof(bagSid_), &bagType_);
-        engine::commonTestItemSid(ctx.gw, sid_, sizeof(sid_), &type_);
+        // The probe must be the SAME sid on both clients or the join's delta can never move:
+        // the host places its probe and the join counts its own. commonTestItemSid matches
+        // English name preferences against the LOCALIZED gd->name, so an es_ES host and an
+        // en_GB join picked different templates and the join read delta 0 with the host's
+        // items sitting in its bag all along (run 20260926_154533). The save's bag contents
+        // are identical on both clients, so the first stack already in the bag is a
+        // language-independent common probe; the old pick stays as the empty-bag fallback.
+        if (!have_ ||
+            !engine::firstNestedContainerItemSid(ctx.gw, hand_, 0, sid_, sizeof(sid_), &type_)) {
+            engine::commonTestItemSid(ctx.gw, sid_, sizeof(sid_), &type_);
+        }
         // TRY to mint a second container LOCALLY on both clients (each side arranging its own is
         // the only way to put two identical bags in play, since a fabricated container never
         // replicates). Kenshi normally refuses - a spare bag inside the worn bag - and then the

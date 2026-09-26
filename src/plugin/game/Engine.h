@@ -637,6 +637,13 @@ int dropItemFromNestedContainer(GameWorld* gw, const unsigned int cHand[5], cons
 int countInNestedContainer(GameWorld* gw, const unsigned int cHand[5], const char* sid,
                            unsigned int typeCat, unsigned int which = 0);
 
+// SEH-guarded: the (sid,type) of the FIRST stack inside carried container `which`, or 0
+// when it is absent or empty. Both clients load the same save, so a probe picked this way
+// is the SAME sid on both sides regardless of game language (unlike commonTestItemSid,
+// which matches English name preferences against the LOCALIZED gd->name).
+int firstNestedContainerItemSid(GameWorld* gw, const unsigned int cHand[5], unsigned int which,
+                                char* outSid, unsigned int outLen, unsigned int* outType);
+
 // SEH-guarded (protocol 48): how many CONTAINERS the character at cHand carries, worn or
 // loose. Two bags of the SAME template are the case the apply side can confuse, so a gate
 // needs to assert they are both present before it can assert where their contents landed.
@@ -685,7 +692,10 @@ int removeTestItemsFromContainer(GameWorld* gw, const unsigned int cHand[5], int
 
 // SEH-guarded: report the deterministic common test-item template (the one
 // addTestItemsToContainer uses) WITHOUT adding anything, so both clients can track the
-// same probe sid independently (same gamedata -> same template). Returns 1 on success.
+// same probe sid independently (same gamedata -> same template). CAVEAT: the match runs
+// over LOCALIZED display names, so clients in different game languages can pick different
+// templates - a cross-client probe must come from shared save state instead (see
+// firstNestedContainerItemSid). Returns 1 on success.
 int commonTestItemSid(GameWorld* gw, char* outSid, unsigned int outLen,
                       unsigned int* outType);
 

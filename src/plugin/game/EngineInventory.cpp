@@ -931,6 +931,33 @@ int countInNestedContainer(GameWorld* gw, const unsigned int cHand[5], const cha
     return total;
 }
 
+// SEH-guarded: the (sid,type) of the FIRST stack inside carried container `which`, or 0
+// when the container is absent or empty. A probe taken from the save's own bag contents
+// is identical on both clients (same save -> same contents -> same enumeration order)
+// in ANY game language, unlike findCommonItemTemplate, which matches English display
+// names against the LOCALIZED gd->name.
+int firstNestedContainerItemSid(GameWorld* gw, const unsigned int cHand[5], unsigned int which,
+                                char* outSid, unsigned int outLen, unsigned int* outType) {
+    if (outSid && outLen) outSid[0] = '\0';
+    if (outType) *outType = 0;
+    if (!gw || !outSid || outLen == 0) return 0;
+    int found = 0;
+    __try {
+        Inventory* sub = nestedInventoryOf(gw, cHand, which);
+        if (!sub) return 0;
+        InvItemEntry ent[INV_ITEMS_MAX];
+        unsigned int n = readInvItems(sub, ent, 0, INV_ITEMS_MAX, 0);
+        for (unsigned int i = 0; i < n; ++i) {
+            if (!ent[i].stringID[0]) continue;
+            strncpy(outSid, ent[i].stringID, outLen - 1); outSid[outLen - 1] = '\0';
+            if (outType) *outType = ent[i].itemType;
+            found = 1;
+            break;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { found = 0; }
+    return found;
+}
+
 bool applyContainerContents(GameWorld* gw, const unsigned int cHand[5],
                             const InvItemEntry* items, unsigned int count,
                             bool truncated) {
