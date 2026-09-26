@@ -1320,7 +1320,11 @@ function Test-PcAssault {
     # target, which the JOIN samples every tick, so its vitals series always exists.
     $hitFlesh = 0.0; $hitBlood = 0.0; $hitCount = 0; $hitHand = ''
     $hitAgg = @{}
-    foreach ($hm in (Select-String -Path $HostFile -Pattern '\[combat\] HIT RECV id=\d+ hand=(\d+,\d+) flesh=([\d.]+) blood=([\d.]+) applied=1' -ErrorAction SilentlyContinue)) {
+    # The RECV line gained " ko=%u skill=%.2f" with PR #36 (join knockout sync,
+    # protocol 64) between blood= and applied=; keep the trailing fields optional
+    # so both the protocol-45 and the current format parse (non-capturing: flesh
+    # and blood must stay groups 2 and 3).
+    foreach ($hm in (Select-String -Path $HostFile -Pattern '\[combat\] HIT RECV id=\d+ hand=(\d+,\d+) flesh=([\d.]+) blood=([\d.]+)(?: ko=\d+ skill=[\d.]+)? applied=1' -ErrorAction SilentlyContinue)) {
         $g = $hm.Matches[0].Groups
         $hnd = $g[1].Value
         $sum = [double]$g[2].Value + [double]$g[3].Value
