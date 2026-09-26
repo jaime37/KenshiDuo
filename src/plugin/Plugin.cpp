@@ -518,10 +518,32 @@ void driveSaveSync() {
     for (std::deque<coop::InboundInvSaveFence>::iterator it = invFences.begin();
          it != invFences.end(); ++it) {
         if (!g_cfg.isHost && it->pkt.type == (coop::u8)coop::PKT_INV_SAVE_FENCE) {
-            g_repl.requestInventorySaveFence(it->pkt.fenceId);
-            char b[112]; _snprintf(b, sizeof(b) - 1,
-                "[invsave] REQ received fence=%u", it->pkt.fenceId);
-            b[sizeof(b) - 1] = '\0'; coopLog(b);
+            if (!g_gameStarted) {
+                // Never in gameplay (title screen, e.g. the connect-push bake):
+                // this side authors no inventory yet, so the checkpoint is
+                // vacuously complete. The normal ACK path lives inside
+                // publishInventories, which is worldLive-gated and will not run
+                // until the pushed save finishes loading - longer than the
+                // host's fence timeout - so latching the fence there forced the
+                // availability fallback on EVERY connect-push with invSync.
+                // ACK zero now (same semantics as the "no owned inventory"
+                // path in publishInventories) and do not latch.
+                coop::InvSaveFencePacket ack;
+                memset(&ack, 0, sizeof(ack));
+                ack.type    = (coop::u8)coop::PKT_INV_SAVE_FENCE;
+                ack.ownerId = g_net.localId();
+                ack.fenceId = it->pkt.fenceId;
+                g_net.queueInvSaveFence(ack);
+                char b[144]; _snprintf(b, sizeof(b) - 1,
+                    "[invsave] REQ received fence=%u; ACK containers=0 "
+                    "(not in gameplay yet)", it->pkt.fenceId);
+                b[sizeof(b) - 1] = '\0'; coopLog(b);
+            } else {
+                g_repl.requestInventorySaveFence(it->pkt.fenceId);
+                char b[112]; _snprintf(b, sizeof(b) - 1,
+                    "[invsave] REQ received fence=%u", it->pkt.fenceId);
+                b[sizeof(b) - 1] = '\0'; coopLog(b);
+            }
         } else if (g_cfg.isHost &&
                    it->pkt.type == (coop::u8)coop::PKT_INV_SAVE_FENCE) {
             if (it->pkt.fenceId != g_saveFenceWaiting || g_saveFenceWaiting == 0) {
