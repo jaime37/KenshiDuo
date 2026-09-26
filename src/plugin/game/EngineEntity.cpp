@@ -13,6 +13,7 @@
 // the API consumed by the PowerShell oracles (see resources/CODE_MAP.md).
 
 #include "EngineInternal.h"
+#include "ProdTemplateMatch.h" // es_ES/stringID building-template matching (pure)
 
 // The co-op session panel + status overlay (the DatapanelGUI/Win32/clipboard
 // surface) moved to EngineUi.cpp in Phase 5e, taking its <kenshi/gui/...>,
@@ -1134,11 +1135,16 @@ GameData* findSeatTemplate(GameWorld* gw) {
     g_getDataOfTypeFn(&gw->gamedata, &g_dataScratch, BUILDING);
     unsigned int n = g_dataScratch.size();
     // Ordered keyword preference; first present keyword that any template matches.
-    const char* prefs[] = { "bar stool", "stool", "chair", "throne" };
-    for (unsigned int k = 0; k < 4; ++k) {
+    // Lists + matching in ProdTemplateMatch.h: name (EN or ES) OR stringID, so an
+    // es_ES game matches too (the "no template" class).
+    unsigned int nPrefs = 0;
+    const char* const* prefs = prodtmpl::seatPrefs(&nPrefs);
+    for (unsigned int k = 0; k < nPrefs; ++k) {
         for (unsigned int i = 0; i < n; ++i) {
             GameData* gd = g_dataScratch[i];
-            if (gd && ciContains(gd->name.c_str(), prefs[k])) return gd;
+            if (gd && prodtmpl::matches(gd->name.c_str(),
+                                        gd->stringID.c_str(), prefs[k]))
+                return gd;
         }
     }
     return 0;
@@ -1152,11 +1158,14 @@ GameData* findBedTemplate(GameWorld* gw) {
     g_dataScratch.clear();
     g_getDataOfTypeFn(&gw->gamedata, &g_dataScratch, BUILDING);
     unsigned int n = g_dataScratch.size();
-    const char* prefs[] = { "camp bed", "bedroll", "bed" };
-    for (unsigned int k = 0; k < 3; ++k) {
+    unsigned int nPrefs = 0;
+    const char* const* prefs = prodtmpl::bedPrefs(&nPrefs); // EN + ES + stringID
+    for (unsigned int k = 0; k < nPrefs; ++k) {
         for (unsigned int i = 0; i < n; ++i) {
             GameData* gd = g_dataScratch[i];
-            if (gd && ciContains(gd->name.c_str(), prefs[k])) return gd;
+            if (gd && prodtmpl::matches(gd->name.c_str(),
+                                        gd->stringID.c_str(), prefs[k]))
+                return gd;
         }
     }
     return 0;
@@ -1168,11 +1177,14 @@ GameData* findCageTemplate(GameWorld* gw) {
     g_dataScratch.clear();
     g_getDataOfTypeFn(&gw->gamedata, &g_dataScratch, BUILDING);
     unsigned int n = g_dataScratch.size();
-    const char* prefs[] = { "prisoner cage", "cage" };
-    for (unsigned int k = 0; k < 2; ++k) {
+    unsigned int nPrefs = 0;
+    const char* const* prefs = prodtmpl::cagePrefs(&nPrefs); // EN + ES + stringID
+    for (unsigned int k = 0; k < nPrefs; ++k) {
         for (unsigned int i = 0; i < n; ++i) {
             GameData* gd = g_dataScratch[i];
-            if (gd && ciContains(gd->name.c_str(), prefs[k])) return gd;
+            if (gd && prodtmpl::matches(gd->name.c_str(),
+                                        gd->stringID.c_str(), prefs[k]))
+                return gd;
         }
     }
     return 0;
@@ -1206,13 +1218,16 @@ GameData* findPoleTemplate(GameWorld* gw) {
         }
     }
     // A pole/shackle keyword (never a bare "cage") is what marks the standing
-    // post; "cage pole" still qualifies because it contains "pole".
-    const char* prefs[] = { "prisoner pole", "cage pole", "shackle", "pole" };
-    const unsigned int nprefs = sizeof(prefs) / sizeof(prefs[0]);
+    // post; "cage pole" still qualifies because it contains "pole". Lists +
+    // matching in ProdTemplateMatch.h: name (EN or ES) OR stringID.
+    unsigned int nprefs = 0;
+    const char* const* prefs = prodtmpl::polePrefs(&nprefs);
     for (unsigned int k = 0; k < nprefs; ++k) {
         for (unsigned int i = 0; i < n; ++i) {
             GameData* gd = g_dataScratch[i];
-            if (gd && ciContains(gd->name.c_str(), prefs[k])) return gd;
+            if (gd && prodtmpl::matches(gd->name.c_str(),
+                                        gd->stringID.c_str(), prefs[k]))
+                return gd;
         }
     }
     return 0;
@@ -1228,15 +1243,15 @@ GameData* findMachineTemplate(GameWorld* gw) {
     g_dataScratch.clear();
     g_getDataOfTypeFn(&gw->gamedata, &g_dataScratch, BUILDING);
     unsigned int n = g_dataScratch.size();
-    const char* prefs[] = {
-        "training dummy", "combat dummy", "punching bag", "research bench",
-        "engineering bench", "weapon smithy", "spinning wheel", "loom"
-    };
-    const unsigned int nprefs = sizeof(prefs) / sizeof(prefs[0]);
+    // Lists + matching in ProdTemplateMatch.h: name (EN or ES) OR stringID.
+    unsigned int nprefs = 0;
+    const char* const* prefs = prodtmpl::machinePrefs(&nprefs);
     for (unsigned int k = 0; k < nprefs; ++k) {
         for (unsigned int i = 0; i < n; ++i) {
             GameData* gd = g_dataScratch[i];
-            if (gd && ciContains(gd->name.c_str(), prefs[k])) return gd;
+            if (gd && prodtmpl::matches(gd->name.c_str(),
+                                        gd->stringID.c_str(), prefs[k]))
+                return gd;
         }
     }
     return 0;
@@ -1289,20 +1304,18 @@ RootObject* findWorkFixtureNear(GameWorld* gw, int* outTask) {
         g_npcQuery.clear();
         g_getObjsFn(gw, &g_npcQuery, &center, 60.0f, BUILDING, 256, 0);
         unsigned int total = g_npcQuery.size();
-        const char* prefs[] = {
-            "training dummy", "combat dummy", "punching bag", "research bench",
-            "engineering bench", "weapon smithy", "spinning wheel", "loom"
-        };
-        const unsigned int nprefs = sizeof(prefs) / sizeof(prefs[0]);
+        unsigned int nprefs = 0;
+        const char* const* prefs = prodtmpl::machinePrefs(&nprefs); // EN+ES+stringID
         for (unsigned int k = 0; k < nprefs; ++k) {
             for (unsigned int i = 0; i < total; ++i) {
                 RootObject* o = g_npcQuery[i];
                 if (!o) continue;
                 GameData* gd = o->getGameData();
-                if (gd && ciContains(gd->name.c_str(), prefs[k])) {
+                if (gd && prodtmpl::matches(gd->name.c_str(),
+                                            gd->stringID.c_str(), prefs[k])) {
                     if (outTask)
-                        *outTask = (ciContains(gd->name.c_str(), "dummy") ||
-                                    ciContains(gd->name.c_str(), "bag"))
+                        *outTask = prodtmpl::isTrainingFixture(
+                                       gd->name.c_str(), gd->stringID.c_str())
                                        ? USE_TRAINING_DUMMY : OPERATE_MACHINERY;
                     return o;
                 }

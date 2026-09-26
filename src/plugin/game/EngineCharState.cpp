@@ -11,6 +11,7 @@
 // (see resources/CODE_MAP.md).
 
 #include "EngineInternal.h"
+#include "ProdTemplateMatch.h" // es_ES/stringID building-template matching (pure)
 
 namespace coop {
 namespace engine {
@@ -945,10 +946,14 @@ bool enterFurnitureNearPos(GameWorld* gw, Character* occupant, int kind,
         g_npcQuery.clear();
         g_getObjsFn(gw, &g_npcQuery, &center, radius, BUILDING, 64, 0);
         unsigned int total = g_npcQuery.size();
-        const char* bedPrefs[]  = { "camp bed", "bedroll", "bed" };
-        const char* cagePrefs[] = { "prisoner cage", "cage" };
-        const char** prefs = (kind == 2) ? cagePrefs : bedPrefs;
-        const unsigned int nprefs = (kind == 2) ? 2u : 3u;
+        // Preference lists in ProdTemplateMatch.h: name (EN or ES) OR stringID -
+        // this is a REPLICATION path (ReplicatorDrive), so an es_ES client must
+        // resolve the same furniture the en_GB author named.
+        unsigned int nBed = 0, nCage = 0;
+        const char* const* bedPrefs  = prodtmpl::bedPrefs(&nBed);
+        const char* const* cagePrefs = prodtmpl::cagePrefs(&nCage);
+        const char* const* prefs = (kind == 2) ? cagePrefs : bedPrefs;
+        const unsigned int nprefs = (kind == 2) ? nCage : nBed;
         float bestD2 = 1e18f;
         for (unsigned int i = 0; i < total; ++i) {
             RootObject* o = g_npcQuery[i];
@@ -957,7 +962,9 @@ bool enterFurnitureNearPos(GameWorld* gw, Character* occupant, int kind,
             if (!gd) continue;
             bool match = false;
             for (unsigned int k = 0; k < nprefs && !match; ++k)
-                if (ciContains(gd->name.c_str(), prefs[k])) match = true;
+                if (prodtmpl::matches(gd->name.c_str(), gd->stringID.c_str(),
+                                      prefs[k]))
+                    match = true;
             if (!match) continue;
             Ogre::Vector3 p = o->getPosition();
             float dx = p.x - x, dz = p.z - z;

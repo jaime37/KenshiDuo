@@ -2153,6 +2153,50 @@ static void testProdTemplateMatch() {
           prodtmpl::matches(0, "Research Bench", "research bench"));
     CHECK("null sid tolerated",
           prodtmpl::matches("Research Bench", 0, "research bench"));
+
+    // The other building finders share the same es_ES/stringID contract (the
+    // "[build] probe-place no template" class: build_sync/latejoin_sync/
+    // save_stage1 on an es_ES host). English terms keep their original order
+    // at the head of each list; Spanish terms follow.
+    unsigned int nFix = 0;
+    const char* const* fix = prodtmpl::fixturePrefs(&nFix);
+    CHECK("fixture list tops at training dummy",
+          nFix > 0 && std::strcmp(fix[0], "training dummy") == 0);
+    unsigned int nDoor = 0, nSeat = 0, nBed = 0, nCage = 0, nPole = 0, nMach = 0;
+    CHECK("all finder lists non-empty",
+          prodtmpl::doorPrefs(&nDoor) && nDoor > 0 &&
+          prodtmpl::seatPrefs(&nSeat) && nSeat > 0 &&
+          prodtmpl::bedPrefs(&nBed) && nBed > 0 &&
+          prodtmpl::cagePrefs(&nCage) && nCage > 0 &&
+          prodtmpl::polePrefs(&nPole) && nPole > 0 &&
+          prodtmpl::machinePrefs(&nMach) && nMach > 0);
+
+    // es_ES display names match the Spanish terms (the observed failure: the
+    // host's training dummy is "Maniquí de Entrenamiento MkI", sid numeric).
+    CHECK("es fixture: maniqu",
+          prodtmpl::matches("Maniqui de Entrenamiento MkI", "898-gamedata.base",
+                            "maniqu"));
+    CHECK("es fixture: entrenamiento",
+          prodtmpl::matches("Maniqui de Entrenamiento MkI", "", "entrenamiento"));
+    CHECK("es door: choza",
+          prodtmpl::matches("Choza pequena", "", "choza"));
+    CHECK("es bed: catre", prodtmpl::matches("Catre", "", "catre"));
+    CHECK("es cage: jaula",
+          prodtmpl::matches("Jaula de prisioneros", "", "jaula"));
+    CHECK("es pole: poste",
+          prodtmpl::matches("Poste de prisioneros", "", "poste"));
+    CHECK("es seat: taburete",
+          prodtmpl::matches("Taburete de bar", "", "taburete"));
+    CHECK("es machine: saco de boxeo",
+          prodtmpl::matches("Saco de boxeo", "", "saco de boxeo"));
+
+    // The dummy/bag task pick works in both languages and rejects machines.
+    CHECK("training fixture: es dummy",
+          prodtmpl::isTrainingFixture("Maniqui de Entrenamiento MkI", ""));
+    CHECK("training fixture: en bag",
+          prodtmpl::isTrainingFixture("Punching Bag", ""));
+    CHECK("training fixture: machine rejected",
+          !prodtmpl::isTrainingFixture("Banco de herreria", ""));
 }
 
 // ---- Captive kind-conflict anchor (JailAnchor.h) ----------------------------

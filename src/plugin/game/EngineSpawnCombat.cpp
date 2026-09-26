@@ -12,6 +12,7 @@
 // the API consumed by the PowerShell oracles (see resources/CODE_MAP.md).
 
 #include "EngineInternal.h"
+#include "ProdTemplateMatch.h" // es_ES/stringID building-template matching (pure)
 #include "../core/WorkPose.h" // SEAT_MATCH_DIST / WORK_MATCH_DIST / poseMatchDist
 
 namespace coop {
@@ -518,21 +519,27 @@ RootObject* findFurnitureNear(GameWorld* gw, int kind) {
         g_npcQuery.clear();
         g_getObjsFn(gw, &g_npcQuery, &center, 60.0f, BUILDING, 256, 0);
         unsigned int total = g_npcQuery.size();
-        const char* bedPrefs[]  = { "camp bed", "bedroll", "bed" };
-        const char* cagePrefs[] = { "prisoner cage", "cage" };
+        // Preference lists in ProdTemplateMatch.h: name (EN or ES) OR stringID,
+        // so an es_ES client relocates the same baked fixture (the English-only
+        // lists matched nothing on a localized game - the "no template" class).
+        unsigned int nBed = 0, nCage = 0, nPole = 0;
+        const char* const* bedPrefs  = prodtmpl::bedPrefs(&nBed);
+        const char* const* cagePrefs = prodtmpl::cagePrefs(&nCage);
         // kind==4: a PRISONER POLE. Same engine containment as a cage (kind=2 /
         // setPrisonMode) but a distinct model - prefer pole/shackle names so a
         // world holding both a cage and a pole picks the pole.
-        const char* polePrefs[] = { "prisoner pole", "cage pole", "shackle", "pole" };
-        const char** prefs = (kind == 4) ? polePrefs
-                                          : ((kind == 2) ? cagePrefs : bedPrefs);
-        const unsigned int nprefs = (kind == 4) ? 4u : ((kind == 2) ? 2u : 3u);
+        const char* const* polePrefs = prodtmpl::polePrefs(&nPole);
+        const char* const* prefs = (kind == 4) ? polePrefs
+                                               : ((kind == 2) ? cagePrefs : bedPrefs);
+        const unsigned int nprefs = (kind == 4) ? nPole : ((kind == 2) ? nCage : nBed);
         for (unsigned int k = 0; k < nprefs; ++k) {
             for (unsigned int i = 0; i < total; ++i) {
                 RootObject* o = g_npcQuery[i];
                 if (!o) continue;
                 GameData* gd = o->getGameData();
-                if (gd && ciContains(gd->name.c_str(), prefs[k])) return o;
+                if (gd && prodtmpl::matches(gd->name.c_str(),
+                                            gd->stringID.c_str(), prefs[k]))
+                    return o;
             }
         }
         return 0;
@@ -1085,11 +1092,12 @@ bool setupCraftScene(GameWorld* gw) {
 
     // Pick the task from the chosen fixture name: a dummy is "used", everything
     // else is "operated". (findMachineTemplate prioritises a training dummy.)
+    // Name (EN or ES) OR stringID, so an es_ES bake picks the same task.
     int task = OPERATE_MACHINERY;
     {
         GameData* tmpl = findMachineTemplate(gw);
-        if (tmpl && (ciContains(tmpl->name.c_str(), "dummy") ||
-                     ciContains(tmpl->name.c_str(), "bag")))
+        if (tmpl && prodtmpl::isTrainingFixture(tmpl->name.c_str(),
+                                                tmpl->stringID.c_str()))
             task = USE_TRAINING_DUMMY;
     }
     // Borrow a live non-player faction from a nearby NPC so the worker is NOT a

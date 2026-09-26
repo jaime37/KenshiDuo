@@ -1034,13 +1034,21 @@ static GameData* findBuildTemplate(GameWorld* gw, bool wantDoor) {
     g_dataScratch.clear();
     g_getDataOfTypeFn(&gw->gamedata, &g_dataScratch, BUILDING);
     unsigned int n = g_dataScratch.size();
-    const char* fixturePrefs[] = { "training dummy", "camp bed", "storage", "well" };
-    const char* doorPrefs[]    = { "small shack", "shack", "storm house", "small house" };
-    const char** prefs = wantDoor ? doorPrefs : fixturePrefs;
-    for (unsigned int k = 0; k < 4; ++k) {
+    // Preference lists + matching live in ProdTemplateMatch.h (pure, unit
+    // tested) - same fix as findProdTemplate: on an es_ES game the display
+    // NAME is translated, so English-only terms never matched and the probe
+    // logged "[build] probe-place no template" (build_sync/latejoin_sync/
+    // save_stage1, runs 20260926_215034..220003). A candidate matches by name
+    // (English OR Spanish terms) OR by the language-independent stringID.
+    unsigned int nPrefs = 0;
+    const char* const* prefs = wantDoor ? prodtmpl::doorPrefs(&nPrefs)
+                                        : prodtmpl::fixturePrefs(&nPrefs);
+    for (unsigned int k = 0; k < nPrefs; ++k) {
         for (unsigned int i = 0; i < n; ++i) {
             GameData* gd = g_dataScratch[i];
-            if (gd && ciContains(gd->name.c_str(), prefs[k])) return gd;
+            if (gd && prodtmpl::matches(gd->name.c_str(),
+                                        gd->stringID.c_str(), prefs[k]))
+                return gd;
         }
     }
     return 0;
