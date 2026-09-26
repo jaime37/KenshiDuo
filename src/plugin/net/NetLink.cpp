@@ -1802,15 +1802,16 @@ void NetLink::threadLoop() {
             }
         }
 
-        // Drain + send Host-canonical placed-building announcements + progress
-        // rows on CH_RELIABLE (protocol 60). The Join never publishes state.
-        // Drain + send any queued placed-building announcements + progress
-        // rows on CH_RELIABLE (protocol 27). PLACE is a one-shot describe/mint
-        // edge (a lost one strands an invisible building on the peer - the
-        // protocol-21 lesson); STATE rows are change-gated by the Replicator
-        // (~1 Hz sample, 10 s safety resend while incomplete), so the channel
-        // is silent once every site completes. Same-channel ordered-reliable
-        // guarantees a STATE row never arrives before its PLACE.
+        // Drain + send placed-building announcements + progress rows on
+        // CH_RELIABLE (protocol 27). PLACE is a one-shot describe/mint edge (a
+        // lost one strands an invisible building on the peer - the protocol-21
+        // lesson); canonical PLACE/STATE rows are Host-published, while the
+        // Join's placer-authored STATE rows (its own placements) go to the
+        // Host, which applies and re-publishes them. STATE rows are
+        // change-gated by the Replicator (~1 Hz sample, 10 s safety resend
+        // while incomplete), so the channel is silent once every site
+        // completes. Same-channel ordered-reliable guarantees a STATE row
+        // never arrives before its PLACE.
         std::vector<BuildPlacePacket> buildPlacePkts;
         std::vector<BuildStatePacket> buildStatePkts;
         EnterCriticalSection(&outCs_);
@@ -1831,6 +1832,8 @@ void NetLink::threadLoop() {
                                                  ENET_PACKET_FLAG_RELIABLE);
             if (isHost_) {
                 enet_host_broadcast(enetHost_, CH_RELIABLE, out);
+            } else if (serverPeer_ && serverPeer_->state == ENET_PEER_STATE_CONNECTED) {
+                enet_peer_send(serverPeer_, CH_RELIABLE, out);
             } else {
                 enet_packet_destroy(out);
             }

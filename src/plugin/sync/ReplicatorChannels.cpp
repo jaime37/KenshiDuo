@@ -2208,7 +2208,54 @@ void Replicator::publishBuilds(const SyncContext& ctx) {
                       p.seq, retry ? 1 : 0);
             b[sizeof(b) - 1] = '\0'; coop::logLine(b);
         }
-        return; // Join never publishes canonical construction progress
+
+        // Placer-authored progress (protocol-27 semantics: progress for a
+        // building the SENDER placed). The intents merge dropped this leg -
+        // the Join ramped its site locally, the Host never learned and its
+        // own 0.0 rows reverted the owner's ramp (build_sync join leg, issue
+        // #81(b)). The Join streams its OWN placements to the Host, which
+        // applies them (applyBuilds) and re-publishes as the canonical
+        // sampler. Same packet and cadence shape as the Host rows below.
+        const unsigned long SAMPLE_MS = tuning_.buildSampleMs;
+        const unsigned long RESEND_MS = tuning_.buildResendMs;
+        if (!sync::gateSampleDue(now, buildSampleMs_, SAMPLE_MS)) return;
+        buildSampleMs_ = now;
+        const float EPS = 0.005f;
+        for (std::map<Key, OwnBuild>::iterator it = ownBuilds_.begin();
+             it != ownBuilds_.end(); ++it) {
+            OwnBuild& ob = it->second;
+            if (!ob.haveAnn || ob.removed || ob.doneSent) continue;
+            engine::BuildRead cur;
+            if (!engine::readBuildingByHand(ob.hand, &cur)) continue;
+            float dp = cur.progress - ob.lastProg;
+            bool changed = (dp > EPS || dp < -EPS) || (cur.complete != ob.lastComplete);
+            if (!sync::gateShouldSend(changed, now, ob.lastSendMs, /*minSendMs*/ 0,
+                                      RESEND_MS, /*resendUnsent*/ false))
+                continue;
+            ob.lastProg = cur.progress; ob.lastComplete = cur.complete;
+            ob.lastSendMs = now;
+            BuildStatePacket pkt;
+            memset(&pkt, 0, sizeof(pkt));
+            pkt.type     = (u8)PKT_BUILD_STATE;
+            pkt.ownerId  = ownerId;
+            pkt.seq      = buildSeqOut_++;
+            pkt.key[0] = it->first.t; pkt.key[1] = it->first.c;
+            pkt.key[2] = it->first.cs; pkt.key[3] = it->first.i;
+            pkt.key[4] = it->first.s;
+            pkt.progress = cur.progress;
+            pkt.complete = (u8)(cur.complete ? 1 : 0);
+            net.queueBuildState(pkt);
+            if (cur.complete) ob.doneSent = true;
+            if (changed) { // resends stay silent; the change is the signal
+                char b[176];
+                _snprintf(b, sizeof(b) - 1,
+                          "[build] STATE-SEND key=%u.%u.%u.%u.%u prog=%.3f complete=%u seq=%u",
+                          pkt.key[0], pkt.key[1], pkt.key[2], pkt.key[3], pkt.key[4],
+                          cur.progress, pkt.complete, pkt.seq);
+                b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+            }
+        }
+        return; // the Host re-publishes these rows as the canonical sampler
     }
 
     // Host progress rows (~1 Hz, change-gated + 10 s safety resend while
@@ -2308,6 +2355,10 @@ void Replicator::applyBuildIntents(const SyncContext& ctx) {
                         ob.ann.x = p.x; ob.ann.y = p.y; ob.ann.z = p.z;
                         ob.ann.yaw = p.yaw; ob.ann.fromUi = p.fromUi;
                         ob.ann.accepted = 1; ob.haveAnn = true;
+                        // The placer authors this key's progress (protocol-27
+                        // semantics): the Host applies that Join's STATE rows
+                        // instead of reverting them with its own 0.0 samples.
+                        ob.progFromPeer = true; ob.progOwnerId = p.ownerId;
                         Key local; local.t = localHand[0]; local.c = localHand[1];
                         local.cs = localHand[2]; local.i = localHand[3];
                         local.s = localHand[4];
@@ -2315,6 +2366,17 @@ void Replicator::applyBuildIntents(const SyncContext& ctx) {
                         found = ownBuilds_.find(k);
                         accepted = true;
                     }
+                    // Mint-log parity with the Join-side applyBuilds path (the
+                    // build_sync oracle and the mint-height gate read this
+                    // line; the intents world only logged PLACE-INTENT-APPLY).
+                    char mb[240];
+                    _snprintf(mb, sizeof(mb) - 1,
+                              "[build] MINT key=%u.%u.%u.%u.%u sid='%s' ui=%u rc=%d "
+                              "local=%u.%u.%u.%u.%u",
+                              p.key[0], p.key[1], p.key[2], p.key[3], p.key[4],
+                              p.sid, p.fromUi, rc, localHand[0], localHand[1],
+                              localHand[2], localHand[3], localHand[4]);
+                    mb[sizeof(mb) - 1] = '\0'; coop::logLine(mb);
                 }
                 // A placement rejection is final for this exact request. The
                 // Join removes its optimistic copy instead of retrying forever.
@@ -2390,7 +2452,48 @@ void Replicator::applyBuilds(const SyncContext& ctx) {
     std::deque<InboundBuildPlace> places; in.drainBuildPlace(places);
     std::deque<InboundBuildState> states; in.drainBuildState(states);
     std::deque<InboundBuildRemove> removes; in.drainBuildRemove(removes);
-    if (!buildSync_ || ctx.isHost) return; // Host is the sole state publisher
+    if (!buildSync_) return;
+
+    if (ctx.isHost) {
+        // Placer-authored progress (protocol-27 semantics, restored after the
+        // intents merge): a Join streams the progress of ITS placements; the
+        // Host applies each row to the copy it minted from that Join's intent
+        // and its own sampler then re-publishes it as canonical state. Rows
+        // for keys the Host placed itself (or never minted) are not accepted:
+        // the placer is the only legitimate progress source for its key.
+        for (std::deque<InboundBuildState>::iterator it = states.begin();
+             it != states.end(); ++it) {
+            const BuildStatePacket& p = it->pkt;
+            Key k; k.t = p.key[0]; k.c = p.key[1]; k.cs = p.key[2];
+            k.i = p.key[3]; k.s = p.key[4];
+            std::map<Key, OwnBuild>::iterator own = ownBuilds_.find(k);
+            if (own == ownBuilds_.end() || own->second.removed ||
+                !own->second.progFromPeer || own->second.progOwnerId != it->ownerId)
+                continue;
+            OwnBuild& ob = own->second;
+            if (!sync::gateSeqAccept(ob.seqSeen, p.seq)) continue;
+            ob.seqSeen = p.seq;
+            engine::BuildRead cur;
+            if (engine::readBuildingByHand(ob.hand, &cur)) {
+                float d = cur.progress - p.progress;
+                if (d < 0.005f && d > -0.005f && cur.complete == (int)p.complete)
+                    continue;
+                if (cur.complete) continue;
+            }
+            engine::BuildRead post;
+            bool ok = engine::writeBuildProgressByHand(ob.hand, p.progress,
+                                                       p.complete != 0, &post);
+            char b[208];
+            _snprintf(b, sizeof(b) - 1,
+                      "[build] STATE-RECV key=%u.%u.%u.%u.%u prog=%.3f complete=%u "
+                      "ok=%d localProg=%.3f localComplete=%d seq=%u",
+                      p.key[0], p.key[1], p.key[2], p.key[3], p.key[4],
+                      p.progress, p.complete, ok ? 1 : 0,
+                      post.progress, post.complete, p.seq);
+            b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+        }
+        return; // the Host receives no canonical PLACE/REMOVE rows (intents)
+    }
 
     // Canonical placement first. If this key is the Join's optimistic local
     // placement, adopt it in-place; otherwise mint the Host's placement.

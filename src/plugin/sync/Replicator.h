@@ -2136,9 +2136,16 @@ private:
         bool haveAnn;
         u32 pendingPlaceSeq;
         unsigned long pendingPlaceSendMs;
+        // Host side of the intents world: this key was minted from a remote
+        // PLACE intent, so its construction progress is authored by that Join
+        // (protocol-27 semantics: progress for a building the SENDER placed).
+        // The Host applies its STATE rows and re-publishes them as sampler.
+        bool progFromPeer;
+        u32  progOwnerId;
         OwnBuild() : lastProg(-1.0f), lastComplete(-1), lastSendMs(0),
                      seqSeen(0), doneSent(false), removed(false), haveAnn(false),
-                     pendingPlaceSeq(0), pendingPlaceSendMs(0) {
+                     pendingPlaceSeq(0), pendingPlaceSendMs(0),
+                     progFromPeer(false), progOwnerId(0) {
             memset(hand, 0, sizeof(hand));
             memset(&ann, 0, sizeof(ann));
         }
