@@ -917,7 +917,7 @@ class WorldItemBurstScenario : public Scenario {
 public:
     WorldItemBurstScenario()
         : passed_(false), have_(false), step_(0), lastSampleMs_(0), seeded_(0), dropped_(0),
-          type_(0), peak_(0), firstSeenMs_(0), allSeenMs_(0) {
+          type_(0), peak_(0), firstSeenMs_(0), allSeenMs_(0), baseline_(0) {
         for (int i = 0; i < 5; ++i) hand_[i] = 0;
         sid_[0] = '\0';
     }
@@ -926,13 +926,20 @@ public:
 
     virtual void onStart(const ScenarioContext& ctx) {
         have_ = engine::pickInventoryContainer(ctx.gw, hand_);
-        // Both sides resolve the SAME template independently (same gamedata), so the observer
-        // can count the burst without being told what to look for.
-        engine::commonTestItemSid(ctx.gw, sid_, sizeof(sid_), &type_);
+        // The AUTHOR (host) and the COUNTER (join) are different clients, so the probe
+        // cannot come from commonTestItemSid: it matches English name preferences against
+        // the LOCALIZED gd->name, and a mixed-language pair picks different templates -
+        // the join held all 5 proxies and read ground=0 (run 20260926_171522: host
+        // '1534121-__Fixes.mod' vs join '42159-gamedata.base'). squad1's leader carries
+        // no loose stack to anchor a shared sid on either, so both sides count ALL free
+        // ground items near the anchor as a DELTA against this baseline; the burst is
+        // the only thing that moves it. (The host's own sid_ for seed/drop still comes
+        // from addTestItemsToContainer below, which needs no cross-client agreement.)
+        baseline_ = have_ ? engine::countAllFreeGroundItemsNear(ctx.gw, hand_, RADIUS) : 0;
         char b[200];
         _snprintf(b, sizeof(b) - 1,
-            "SCENARIO WIB anchor host=%d have=%d sid='%s' type=%u n=%d",
-            ctx.isHost ? 1 : 0, have_ ? 1 : 0, sid_[0] ? sid_ : "(none)", type_, BURST_N);
+            "SCENARIO WIB anchor host=%d have=%d baseline=%d n=%d",
+            ctx.isHost ? 1 : 0, have_ ? 1 : 0, baseline_, BURST_N);
         b[sizeof(b) - 1] = '\0'; coop::logLine(b);
     }
 
@@ -956,11 +963,13 @@ public:
             b[sizeof(b) - 1] = '\0'; coop::logLine(b);
         }
 
-        // Sample the ground on BOTH sides. The join's samples are the evidence; the host's
-        // confirm the burst really landed on the author's ground in the first place.
-        if (sid_[0] && (ctx.elapsedMs - lastSampleMs_ >= 250 || lastSampleMs_ == 0)) {
+        // Sample the ground on BOTH sides as a DELTA against the onStart baseline (see
+        // onStart for why no sid is involved). The join's samples are the evidence; the
+        // host's confirm the burst really landed on the author's ground in the first place.
+        if (have_ && (ctx.elapsedMs - lastSampleMs_ >= 250 || lastSampleMs_ == 0)) {
             lastSampleMs_ = ctx.elapsedMs;
-            int n = engine::countFreeGroundItemsNear(ctx.gw, hand_, sid_, type_, RADIUS);
+            int n = engine::countAllFreeGroundItemsNear(ctx.gw, hand_, RADIUS) - baseline_;
+            if (n < 0) n = 0;
             if (n > peak_) peak_ = n;
             if (n >= 1 && firstSeenMs_ == 0) firstSeenMs_ = ctx.elapsedMs;
             if (n >= BURST_N && allSeenMs_ == 0) allSeenMs_ = ctx.elapsedMs;
@@ -1003,6 +1012,7 @@ private:
     unsigned int  type_;
     int           peak_;
     unsigned long firstSeenMs_, allSeenMs_;
+    int           baseline_;
     unsigned int  hand_[5];
     char          sid_[48];
 };
@@ -1033,7 +1043,7 @@ class WorldItemStaleScenario : public Scenario {
 public:
     WorldItemStaleScenario()
         : passed_(false), have_(false), step_(0), lastSampleMs_(0), seeded_(0),
-          dropped_(0), type_(0), despawned_(0), peak_(0), sawProxy_(false) {
+          dropped_(0), type_(0), despawned_(0), peak_(0), sawProxy_(false), baseline_(0) {
         for (int i = 0; i < 5; ++i) hand_[i] = 0;
         sid_[0] = '\0';
     }
@@ -1042,20 +1052,26 @@ public:
 
     virtual void onStart(const ScenarioContext& ctx) {
         have_ = engine::pickInventoryContainer(ctx.gw, hand_);
-        // Both sides resolve the same template from the same gamedata, so the
-        // join can count the item without being told what to look for.
-        engine::commonTestItemSid(ctx.gw, sid_, sizeof(sid_), &type_);
+        // Same cross-client probe constraint as world_item_burst: the host authors the
+        // drop and the JOIN must recognize it, and commonTestItemSid picks by LOCALIZED
+        // display name - an es_ES host and an en_GB join resolved different templates,
+        // so the join never registered the proxy it was holding and the gate read
+        // "staging incomplete" with the injection having fired all along (run
+        // 20260926_172102). No shared loose stack exists in squad1 to anchor a sid on,
+        // so the proxy watch is a DELTA on ALL free ground items near the anchor.
+        baseline_ = have_ ? engine::countAllFreeGroundItemsNear(ctx.gw, hand_, RADIUS) : 0;
         char b[200];
         _snprintf(b, sizeof(b) - 1,
-            "SCENARIO WIS anchor host=%d have=%d sid='%s' type=%u",
-            ctx.isHost ? 1 : 0, have_ ? 1 : 0, sid_[0] ? sid_ : "(none)", type_);
+            "SCENARIO WIS anchor host=%d have=%d baseline=%d",
+            ctx.isHost ? 1 : 0, have_ ? 1 : 0, baseline_);
         b[sizeof(b) - 1] = '\0'; coop::logLine(b);
     }
 
     virtual bool onTick(const ScenarioContext& ctx) {
-        if (sid_[0] && (ctx.elapsedMs - lastSampleMs_ >= 250 || lastSampleMs_ == 0)) {
+        if (have_ && (ctx.elapsedMs - lastSampleMs_ >= 250 || lastSampleMs_ == 0)) {
             lastSampleMs_ = ctx.elapsedMs;
-            int n = engine::countFreeGroundItemsNear(ctx.gw, hand_, sid_, type_, RADIUS);
+            int n = engine::countAllFreeGroundItemsNear(ctx.gw, hand_, RADIUS) - baseline_;
+            if (n < 0) n = 0;
             if (n > peak_) peak_ = n;
             if (n >= 1) sawProxy_ = true;
             char b[176];
@@ -1125,6 +1141,7 @@ private:
     int           despawned_;
     int           peak_;
     bool          sawProxy_;
+    int           baseline_;
     unsigned int  hand_[5];
     char          sid_[48];
 };

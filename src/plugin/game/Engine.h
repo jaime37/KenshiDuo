@@ -962,6 +962,12 @@ void diagGroundScan(GameWorld* gw, const unsigned int cHand[5], const char* sid,
 int countFreeGroundItemsNear(GameWorld* gw, const unsigned int cHand[5],
                              const char* sid, unsigned int typeCat, float radius);
 
+// SEH-guarded: count ALL free ground items within radius of cHand, any template. The
+// language-independent probe for scenarios where one client authors a drop and the other
+// must recognize it (unlike commonTestItemSid, which matches English name preferences
+// against the LOCALIZED gd->name). Use as a DELTA against a baseline taken at onStart.
+int countAllFreeGroundItemsNear(GameWorld* gw, const unsigned int cHand[5], float radius);
+
 // SEH-guarded SPIKE: pick up a free ground item of (sid,type) near cHand by RELOCATING the
 // real object into the character's inventory (no createItem) - the conservation primitive
 // proving weapons can move bag<->ground without fabrication. Returns 1 on success.

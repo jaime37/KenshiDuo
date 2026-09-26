@@ -1871,6 +1871,43 @@ int countFreeGroundItemsNear(GameWorld* gw, const unsigned int cHand[5],
     return count;
 }
 
+// SEH-guarded: count ALL free ground items within radius of cHand, any template. The
+// language-independent probe for scenarios where ONE client authors a drop and the OTHER
+// must recognize it: commonTestItemSid matches English name preferences against the
+// LOCALIZED gd->name, so a mixed-language pair picks different templates and the observer
+// reads 0 with the author's items lying at its feet (world_item_burst/stale runs
+// 20260926_171522/172102). Use as a DELTA against a baseline taken at onStart, so
+// pre-existing save items don't count. Same 3-category scan + pointer dedupe as
+// countFreeGroundItemsNear, minus the (sid,type) filter.
+int countAllFreeGroundItemsNear(GameWorld* gw, const unsigned int cHand[5], float radius) {
+    if (!gw || !g_getObjsFn) return 0;
+    RootObject* ro = resolveObjectByHand(cHand);
+    if (!ro) return 0;
+    int count = 0;
+    __try {
+        Ogre::Vector3 center = ro->getPosition();
+        const itemType kinds[] = { ITEM, WEAPON, ARMOUR };
+        RootObject* seen[64]; unsigned int ns = 0;
+        for (int k = 0; k < 3; ++k) {
+            g_npcQuery.clear();
+            g_getObjsFn(gw, &g_npcQuery, &center, radius, kinds[k], 256, 0);
+            unsigned int n = g_npcQuery.size();
+            for (unsigned int i = 0; i < n; ++i) {
+                RootObject* o = g_npcQuery[i]; if (!o) continue;
+                Item* it = reinterpret_cast<Item*>(o);   // WEAPON/ARMOUR/ITEM objects are Items
+                if (!it->getGameData()) continue;
+                if (it->isInInventory) continue;          // skip the char's own worn/held copies
+                bool dup = false;
+                for (unsigned int j = 0; j < ns; ++j) if (seen[j] == o) { dup = true; break; }
+                if (dup) continue;
+                if (ns < 64) seen[ns++] = o;
+                ++count;
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return count;
+}
+
 // SEH-guarded SPIKE: pick up a FREE ground item of (sid,type) near cHand by RELOCATING the
 // REAL object into the character's inventory (tryAddItem) - NO createItem. This is the
 // conservation primitive that makes weapons work where fabrication fails: the dropped
