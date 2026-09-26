@@ -2626,6 +2626,85 @@ function Test-StoreSync {
                 -Metrics @{ hashMatch = [int]$hashMatch; sent = $sent.Count; applied = $recv.Count } -Detail $detail)
 }
 
+# store_join_add (issue #81(a) direction, protocol 34): the JOIN deposits into
+# the host's chest and the host must see it. Same compiled script as store_sync
+# PLUS the join-side add into its minted chest copy. Gates:
+#   * the store_sync local legs (host placed + completed, chest add landed,
+#     reconcile removal landed, operate loop ran) and both censuses non-empty;
+#   * the join's add landed locally (CONTWRITE kind=add tgt=minted ok=1);
+#   * the CROSSING: the host's own chest census shows the join's quantity on
+#     top of the pre-add baseline in the window between the join add and the
+#     host reconcile (the join->host container path this gate exists to prove);
+#   * the final chest content hashes agree (the store_sync mechanism).
+function Test-StoreJoinAdd {
+    param([string]$HostFile, [string]$JoinFile)
+    $why = @()
+    $hostP = Select-String -Path $HostFile -Pattern $script:ContPlaceRegex -ErrorAction SilentlyContinue | Select-Object -Last 1
+    if ($null -eq $hostP) { $why += "host never logged its CONTPLACE" }
+    elseif ($hostP.Matches[0].Groups[3].Value -ne '1' -or $hostP.Matches[0].Groups[7].Value -ne '1') {
+        $why += "host placement failed (benchOk=$($hostP.Matches[0].Groups[3].Value) chestOk=$($hostP.Matches[0].Groups[7].Value))"
+    }
+    $hSeries = Get-ContSeries -File $HostFile
+    $jSeries = Get-ContSeries -File $JoinFile
+    if ($hSeries.Keys.Count -eq 0) { $why += "host container census empty" }
+    if ($jSeries.Keys.Count -eq 0) { $why += "join container census empty" }
+
+    # Local legs (the store_sync gates).
+    $adds = @(Select-String -Path $HostFile -Pattern $script:ContAddRegex -ErrorAction SilentlyContinue)
+    $hostAdd = @($adds | Where-Object { $_.Matches[0].Groups[1].Value -eq 'host' }) | Select-Object -Last 1
+    if ($null -eq $hostAdd -or $hostAdd.Matches[0].Groups[6].Value -ne '1') { $why += "host chest add missing/failed" }
+    $recon = Select-String -Path $HostFile -Pattern $script:ContReconRegex -ErrorAction SilentlyContinue | Select-Object -Last 1
+    if ($null -eq $recon -or $recon.Matches[0].Groups[6].Value -ne '1') { $why += "host chest reconcile missing/failed" }
+    $ops = @(Select-String -Path $HostFile -Pattern $script:ContOpRegex -ErrorAction SilentlyContinue)
+    if ($ops.Count -eq 0) { $why += "host operate loop never ran" }
+
+    # The join's own add into its minted chest copy.
+    $jAdd = @(Select-String -Path $JoinFile -Pattern $script:ContAddRegex -ErrorAction SilentlyContinue | Where-Object { $_.Matches[0].Groups[1].Value -eq 'join' }) | Select-Object -Last 1
+    if ($null -eq $jAdd) { $why += "join never added into its minted chest copy" }
+    elseif ($jAdd.Matches[0].Groups[6].Value -ne '1') { $why += "join minted-chest add failed locally" }
+
+    $hashMatch = $false
+    if ($null -ne $hostP) {
+        $chestKey = $hostP.Matches[0].Groups[9].Value
+        $chestLocal = Get-MintLocalHand -PeerFile $JoinFile -PlacerKey $chestKey
+        if ($null -eq $chestLocal) { $why += "join never minted the host chest (key=$chestKey)" }
+        elseif (-not $jSeries.ContainsKey($chestLocal)) { $why += "join chest copy (local=$chestLocal) absent from its census" }
+        elseif (-not $hSeries.ContainsKey($chestKey)) { $why += "host chest absent from its own census" }
+        else {
+            $hs = $hSeries[$chestKey]; $js = $jSeries[$chestLocal]
+            $hLast = $hs[$hs.Count-1]; $jLast = $js[$js.Count-1]
+            Write-Host "    FINDING: chest qty host first=$($hs[0].qty) last=$($hLast.qty) join copy first=$($js[0].qty) last=$($jLast.qty)"
+            Write-Host "    FINDING: chest final hash host=$($hLast.hash) join=$($jLast.hash)"
+            # The crossing gate: the host's OWN census must show the join's
+            # qty on top of the baseline it had when the join added, inside
+            # the window before the host reconcile (which legitimately cuts
+            # the sentinel stack back down).
+            if ($null -ne $jAdd -and $jAdd.Matches[0].Groups[6].Value -eq '1') {
+                $jAddT = [long]$jAdd.Matches[0].Groups[12].Value
+                $jGot  = [int]$jAdd.Matches[0].Groups[5].Value
+                $reconT = if ($null -ne $recon) { [long]$recon.Matches[0].Groups[10].Value } else { [long]::MaxValue }
+                $pre = @($hs | Where-Object { $_.t -le $jAddT })
+                if ($pre.Count -eq 0) { $why += "host chest has no census sample at/before the join add (t=$jAddT)" }
+                else {
+                    $base = $pre[$pre.Count-1].qty
+                    $hit = @($hs | Where-Object { $_.t -gt $jAddT -and $_.t -lt $reconT -and $_.qty -ge ($base + $jGot) })
+                    Write-Host "    FINDING: join add got=$jGot sid='$($jAdd.Matches[0].Groups[3].Value)' host chest baseline=$base crossed=$($hit.Count)"
+                    if ($hit.Count -eq 0) { $why += "join chest add never crossed onto the host (baseline=$base want >= $($base + $jGot) before the recon)" }
+                }
+            }
+            # The final states must agree (hash equality = identical multiset).
+            $hashMatch = ($hLast.hash -eq $jLast.hash)
+            if (-not $hashMatch) { $why += "final chest contents disagree (host hash=$($hLast.hash) join=$($jLast.hash))" }
+        }
+    }
+
+    $v = if ($why.Count -eq 0) { "PASS" } else { "FAIL" }
+    $detail = $why -join "; "
+    Write-Host "  STORE-JOIN-ADD $v - hashMatch=$hashMatch $detail"
+    return (Add-GateResult -Name "store_join_add" -Status $v `
+                -Metrics @{ hashMatch = [int]$hashMatch } -Detail $detail)
+}
+
 # vendor_trade (protocol 52 phase 1c): the buyer-side purchase composite gate.
 # Each side performed the two buyer-side mutations of one purchase (cats out of
 # the shared pool + item into its tab leader's inventory); the gate is that BOTH

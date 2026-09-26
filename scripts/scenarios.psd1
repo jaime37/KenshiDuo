@@ -1676,6 +1676,22 @@
             Tier = 'full'; WanVariant = $false
         }
 
+        # store_join_add: issue #81(a) direction - the JOIN deposits into the
+        # host's chest (the store_sync script PLUS the join-side add into its
+        # minted chest copy, storeSync ON). Gates the store_sync local legs
+        # PLUS the join add landing locally and CROSSING onto the host's own
+        # chest census before the host reconcile, with the final content
+        # hashes agreeing. Save+reload persistence of the crossed items stays
+        # out: it needs the two-stage resume_test.ps1 mechanics.
+        store_join_add = @{
+            DiagEnv = @{ KENSHICOOP_INV_SYNC = '1' }
+            Save = 'sync'; Setup = ''; Tolerance = 6.0
+            PrimaryGate = 'store_join_add'
+            Gating   = @('store_join_add', 'clock_sync')
+            Advisory = @('smoothness', 'anim_truth', 'march')
+            Tier = 'full'; WanVariant = $false
+        }
+
         # npc_census: protocol-36 wide-radius ghost culling. The join spawns 4
         # runtime NPCs and parks them ~600 u out - beyond the ~200 u stream
         # bubble, inside the 2000 u census radius - so ONLY the census channel

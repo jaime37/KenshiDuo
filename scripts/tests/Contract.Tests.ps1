@@ -361,6 +361,7 @@ $diagSpec = @{
     inv_reequip    = @{ KENSHICOOP_INV_SYNC = '1' }
     vendor_trade   = @{ KENSHICOOP_INV_SYNC = '1' }
     store_sync     = @{ KENSHICOOP_INV_SYNC = '1' }
+    store_join_add = @{ KENSHICOOP_INV_SYNC = '1' }
     trade_peer     = @{ KENSHICOOP_INV_SYNC = '1' }
     weapon_loot    = @{ KENSHICOOP_INV_SYNC = '1' }
     world_weapon_drop = @{ KENSHICOOP_INV_SYNC = '1'; KENSHICOOP_WORLD_SYNC = '1' }

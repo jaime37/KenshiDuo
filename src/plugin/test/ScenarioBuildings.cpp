@@ -1181,7 +1181,12 @@ private:
 //     The remaining census ticks carry the answer.
 //   * join-side minted-container fabricate: the JOIN adds into the chest
 //     copy it minted (the first storage row that APPEARED mid-run) - the
-//     apply half protocol 34 needs on translated keys (probe tier only).
+//     apply half protocol 34 needs on translated keys (probe tier and
+//     store_join_add).
+// store_join_add (joinAdd=true, probe=false; storeSync ON): the store_sync
+// script PLUS the join-side add - the issue #81(a) direction (the JOIN
+// deposits into the host's chest; the host must see the items and the final
+// contents must agree). The crossing is the oracle's gate.
 // Script: HOST places a crafting bench (t=8s, side -2) + a general-storage
 // chest (t=8s, side +2) leader-relative and ramps both complete (+0.5/3s,
 // minting proxies on the join when buildSync is on); 1 Hz container census
@@ -1193,9 +1198,11 @@ private:
 // recon removed + ops ran); crossing/convergence is the sync oracle's job.
 class StoreProbeScenario : public TimedScenario {
 public:
-    explicit StoreProbeScenario(bool probe)
-        : TimedScenario(probe ? "store_probe" : "store_sync", /*evidenceMs=*/1000),
-          probe_(probe), censusLogged_(0),
+    explicit StoreProbeScenario(bool probe, bool joinAdd = false)
+        : TimedScenario(probe ? "store_probe"
+                              : (joinAdd ? "store_join_add" : "store_sync"),
+                        /*evidenceMs=*/1000),
+          probe_(probe), joinAdd_(joinAdd), censusLogged_(0),
           placed_(false), placeBenchOk_(false), placeChestOk_(false),
           rampStep_(0), rampBenchDone_(false), rampChestDone_(false),
           nextRampMs_(0), nextOpMs_(0), opCount_(0), addDone_(false),
@@ -1243,10 +1250,11 @@ public:
                 emptyDone_ = true;
                 doEmpty(ctx);
             }
-        } else if (probe_) {
-            // Probe tier only: fabricate into the MINTED chest copy (the
-            // translated-key apply half). Skipped under store_sync, where a
-            // join-side add would fight the host-authoritative reconcile.
+        } else if (joinAdd_) {
+            // Probe tier and store_join_add: fabricate into the MINTED chest
+            // copy (the translated-key apply half). Skipped under store_sync,
+            // where a join-side add would fight the host-authoritative
+            // reconcile.
             if (joinChestSeen_ && !joinAddDone_ && ctx.elapsedMs >= JOINADD_AT_MS) {
                 joinAddDone_ = true;
                 doAdd(ctx, joinChestHand_, "minted", 3);
@@ -1496,6 +1504,7 @@ private:
     static const int           RECON_KEEP     = 2;
 
     bool          probe_;
+    bool          joinAdd_;
     unsigned int  censusLogged_;
     bool          placed_;
     bool          placeBenchOk_;
@@ -1541,6 +1550,7 @@ Scenario* makeBuildingScenario(const std::string& name) {
     if (name == "research_sync")  return new ResearchProbeScenario(false);
     if (name == "store_probe")    return new StoreProbeScenario(true);
     if (name == "store_sync")     return new StoreProbeScenario(false);
+    if (name == "store_join_add") return new StoreProbeScenario(false, true);
     return 0;
 }
 

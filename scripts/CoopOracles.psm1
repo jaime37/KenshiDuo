@@ -174,6 +174,7 @@ function Invoke-OneOracle {
         "research_sync"  { return (Test-ResearchSync   -HostFile $HostLog -JoinFile $JoinLog) }
         "store_probe"    { return (Test-StoreProbe     -HostFile $HostLog -JoinFile $JoinLog) }
         "store_sync"     { return (Test-StoreSync      -HostFile $HostLog -JoinFile $JoinLog) }
+        "store_join_add" { return (Test-StoreJoinAdd   -HostFile $HostLog -JoinFile $JoinLog) }
         "squad_probe"    { return (Test-SquadProbe     -HostFile $HostLog -JoinFile $JoinLog) }
         "squad_sync"     { return (Test-SquadSync      -HostFile $HostLog -JoinFile $JoinLog) }
         "spawn_sync"    { return (Test-SpawnSync       -HostFile $HostLog -JoinFile $JoinLog -Tol $Tolerance) }
