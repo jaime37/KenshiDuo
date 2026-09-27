@@ -889,7 +889,14 @@ function Test-SaveSquadMeta {
 
     # Parity: the last census row of each client must carry the same faction
     # name and the same platoon set (entries sorted - order is sid-stable, but
-    # the sort makes the compare robust to any enumeration wobble).
+    # the sort makes the compare robust to any enumeration wobble). Gated ONLY
+    # on stage 2: after the restart both clients loaded the SAME save, so any
+    # divergence there is a proxy/re-mint defect. On stage 1 a mismatch is the
+    # expected finding instead - no channel replicates squad/faction renames
+    # or permajobs live (Wire.h has no such packet), so each client legitimately
+    # sees only its own mutation; that in-session non-replication is precisely
+    # WHY the join's data never enters the host's save, so it is reported, not
+    # gated.
     $cenRx = "SCENARIO SM (?:HOST|JOIN) t=\d+ fac='([^']*)' plats='([^']*)'"
     $cen = {
         param($file)
@@ -904,7 +911,12 @@ function Test-SaveSquadMeta {
     if ($null -ne $hc -and $null -ne $jc) {
         $parity = if ($hc[0] -eq $jc[0] -and $hc[1] -eq $jc[1]) { 1 } else { 0 }
         if ($parity -eq 0) {
-            $why += "final census diverged (host fac='$($hc[0])' plats='$($hc[1])' vs join fac='$($jc[0])' plats='$($jc[1])')"
+            if ($stage -eq 2) {
+                $why += "final census diverged after the restart (host fac='$($hc[0])' plats='$($hc[1])' vs join fac='$($jc[0])' plats='$($jc[1])') - both clients loaded the same save, so this is a proxy/re-mint defect"
+            } else {
+                Write-Host ("  SAVE-SQUADMETA note: stage-1 censuses diverge as designed - renames/jobs do NOT replicate live " +
+                            "(host sees fac='$($hc[0])' plats='$($hc[1])'; join sees fac='$($jc[0])' plats='$($jc[1])')")
+            }
         } else {
             Write-Host "  SAVE-SQUADMETA parity: final censuses identical (fac='$($hc[0])')"
         }
