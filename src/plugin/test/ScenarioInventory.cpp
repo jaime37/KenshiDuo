@@ -2213,6 +2213,229 @@ private:
 };
 const int InvNestedBagScenario::WANT[2] = { 2, 1 };
 
+// rejoin_bag (issue #61): the one player workflow the single-session gates cannot
+// see - a FULL restart. inv_nested_bag proves bag contents cross live; this cycle
+// proves they survive a coordinated save plus BOTH clients relaunching on the
+// transferred save. scripts/rejoin_bag_test.ps1 drives the two stages:
+//   stage 1 (rejoin_bag_stage1, save squad2): the inv_nested_bag script VERBATIM
+//     - the same SCENARIO NEST anchor/ADD/census/verdict lines, so the nested_bag
+//     oracle gates it unchanged - PLUS one coordinated saveGameAs('coopresume')
+//     once the add has converged, so the bag AND its contents bake into the
+//     shared save (the save_sync oracle gates the transfer round trip off the
+//     plugin's [save] lines, scenario-independent).
+//   stage 2 (rejoin_bag, save coopresume): both clients relaunch on the save the
+//     stage-1 transfer delivered (NO harness mirroring, like resume_check) and
+//     census the same bag for 30 s. The local leg is presence (bags>=1 and the
+//     probe total>0); cross-client parity, the churn check and the stage-1 vs
+//     stage-2 persistence comparison belong to the runner (it owns both logs).
+// The carrier/probe resolution is the same save-stable contract inv_nested_bag
+// runs on: both clients walk the same save and agree on the character and bag.
+// The small helpers below mirror InvNestedBagScenario's private ones on purpose
+// - the proven class above stays byte-untouched.
+class RejoinBagScenario : public Scenario {
+public:
+    explicit RejoinBagScenario(bool stage1)
+        : passed_(false), have_(false), isHost_(false), stage1_(stage1),
+          type_(0), bagType_(0), step_(0), bags_(0),
+          saveOk_(false), lastLogMs_(0) {
+        for (int i = 0; i < 5; ++i) hand_[i] = 0;
+        sid_[0] = '\0'; bagSid_[0] = '\0';
+        for (int i = 0; i < BAGS_MAX; ++i) { base_[i] = -1; cur_[i] = -1; added_[i] = 0; }
+    }
+
+    virtual const char* name() const { return stage1_ ? "rejoin_bag_stage1" : "rejoin_bag"; }
+
+    virtual void onStart(const ScenarioContext& ctx) {
+        isHost_ = ctx.isHost;
+        have_ = rbFindBagCarrier(ctx.gw, hand_, bagSid_, sizeof(bagSid_), &bagType_);
+        // Same language-independent probe rule as inv_nested_bag: the save's bag
+        // contents are identical on both clients, so the first stack already in
+        // the bag is the common probe; the name-matched pick is the empty-bag
+        // fallback. Stage 2 re-resolves it from the RELOADED save - identical
+        // contents, so both stages (and both clients) count the same sid.
+        if (!have_ ||
+            !engine::firstNestedContainerItemSid(ctx.gw, hand_, 0, sid_, sizeof(sid_), &type_)) {
+            engine::commonTestItemSid(ctx.gw, sid_, sizeof(sid_), &type_);
+        }
+        bags_ = have_ ? engine::nestedContainerCount(ctx.gw, hand_) : -1;
+        if (bags_ > BAGS_MAX) bags_ = BAGS_MAX;
+        for (int b = 0; b < bags_; ++b)
+            base_[b] = engine::countInNestedContainer(ctx.gw, hand_, sid_, type_, (unsigned int)b);
+        char d[64]; rbDist(base_, bags_, d, sizeof(d));
+        char b[300];
+        if (stage1_) {
+            _snprintf(b, sizeof(b) - 1,
+                "SCENARIO NEST anchor host=%d have=%d hand=%u,%u,%u,%u,%u sid='%s' type=%u "
+                "bag='%s' bagType=%u minted=%d bags=%d base='%s'",
+                isHost_ ? 1 : 0, have_ ? 1 : 0, hand_[0], hand_[1], hand_[2], hand_[3], hand_[4],
+                sid_[0] ? sid_ : "(none)", type_, bagSid_[0] ? bagSid_ : "(none)", bagType_,
+                0, bags_, d);
+        } else {
+            _snprintf(b, sizeof(b) - 1,
+                "SCENARIO RB anchor host=%d have=%d hand=%u,%u,%u,%u,%u sid='%s' type=%u "
+                "bag='%s' bagType=%u bags=%d base='%s'",
+                isHost_ ? 1 : 0, have_ ? 1 : 0, hand_[0], hand_[1], hand_[2], hand_[3], hand_[4],
+                sid_[0] ? sid_ : "(none)", type_, bagSid_[0] ? bagSid_ : "(none)", bagType_,
+                bags_, d);
+        }
+        b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+    }
+
+    virtual bool onTick(const ScenarioContext& ctx) {
+        // Stage 1, HOST @8s: the inv_nested_bag placement leg, verbatim.
+        if (stage1_ && isHost_ && ready() && step_ == 0 && ctx.elapsedMs >= 8000) {
+            step_ = 1;
+            for (int b = 0; b < bags_ && b < (int)(sizeof(WANT) / sizeof(WANT[0])); ++b)
+                added_[b] = engine::addItemToNestedContainer(ctx.gw, hand_, sid_, type_,
+                                                             WANT[b], (unsigned int)b);
+            char d[64]; rbDist(added_, bags_, d, sizeof(d));
+            char b[220];
+            _snprintf(b, sizeof(b) - 1, "SCENARIO NEST ADD sid='%s' type=%u added='%s'",
+                      sid_, type_, d);
+            b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+        }
+
+        // Both stages, both sides: the per-bag census row.
+        if (ready() && (ctx.elapsedMs - lastLogMs_ >= 500 || lastLogMs_ == 0)) {
+            lastLogMs_ = ctx.elapsedMs;
+            for (int b = 0; b < bags_; ++b)
+                cur_[b] = engine::countInNestedContainer(ctx.gw, hand_, sid_, type_, (unsigned int)b);
+            char d[64]; rbDist(cur_, bags_, d, sizeof(d));
+            char b[220];
+            _snprintf(b, sizeof(b) - 1, stage1_ ? "SCENARIO NEST %s t=%lu inBags='%s' bags=%d"
+                                                : "SCENARIO RB %s t=%lu inBags='%s' bags=%d",
+                      isHost_ ? "HOST" : "JOIN", (unsigned long)ctx.elapsedMs, d, bags_);
+            b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+        }
+
+        // Stage 1, HOST @25s: the add has converged on both sides (inv_nested_bag
+        // settles well inside 20 s), so the coordinated save bakes the bag AND
+        // its contents. The plugin's coordination drives quiescence, transfer,
+        // commit and ACK; the save_sync oracle reads its [save] lines.
+        if (stage1_ && isHost_ && step_ == 1 && ctx.elapsedMs >= 25000) {
+            step_ = 2;
+            saveOk_ = engine::saveGameAs(SAVE_NAME);
+            char b[112];
+            _snprintf(b, sizeof(b) - 1, "SCENARIO RB SAVE name='%s' ok=%d t=%lu",
+                      SAVE_NAME, saveOk_ ? 1 : 0, ctx.elapsedMs);
+            b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+        }
+
+        unsigned long dur = stage1_ ? (isHost_ ? S1_HOST_DURATION_MS : S1_JOIN_DURATION_MS)
+                                    : S2_DURATION_MS;
+        if (ctx.elapsedMs >= dur) {
+            if (stage1_) {
+                // The inv_nested_bag verdict, verbatim (sorted multiset of per-bag
+                // deltas vs WANT; the host must also have authored every placement)
+                // plus the save leg on the host: a save that never went out would
+                // leave stage 2 resuming an older coopresume.
+                int dl[BAGS_MAX];
+                int total = 0;
+                for (int b = 0; b < bags_; ++b) {
+                    dl[b] = (cur_[b] >= 0 && base_[b] >= 0) ? (cur_[b] - base_[b]) : -999;
+                    total += dl[b];
+                }
+                rbSortAsc(dl, bags_);
+                char dd[64]; rbDist(dl, bags_, dd, sizeof(dd));
+                char wd[64];
+                { int w[BAGS_MAX]; for (int b = 0; b < bags_; ++b) w[b] = WANT[b];
+                  rbSortAsc(w, bags_); rbDist(w, bags_, wd, sizeof(wd)); }
+                bool converged = ready() && (strcmp(dd, wd) == 0);
+                bool authored = true;
+                for (int b = 0; b < bags_; ++b) if (added_[b] != WANT[b]) authored = false;
+                passed_ = isHost_ ? (converged && authored && saveOk_) : converged;
+                char cd[64]; rbDist(cur_, bags_, cd, sizeof(cd));
+                char bd[64]; rbDist(base_, bags_, bd, sizeof(bd));
+                char b[340];
+                _snprintf(b, sizeof(b) - 1,
+                    "SCENARIO NEST verdict role=%s pass=%d sid='%s' bags=%d minted=%d want='%s' "
+                    "base='%s' inBags='%s' delta='%s' total=%d",
+                    isHost_ ? "host" : "join", passed_ ? 1 : 0, sid_[0] ? sid_ : "(none)",
+                    bags_, 0, wd, bd, cd, dd, total);
+                b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+            } else {
+                // Stage 2 local leg: the bag is still there and still holds the
+                // probe. Parity with the other client and persistence against
+                // stage 1 are cross-log gates owned by the runner.
+                int total = 0;
+                for (int b = 0; b < bags_; ++b) total += (cur_[b] > 0 ? cur_[b] : 0);
+                passed_ = ready() && bags_ >= 1 && total > 0;
+                char cd[64]; rbDist(cur_, bags_, cd, sizeof(cd));
+                char b[300];
+                _snprintf(b, sizeof(b) - 1,
+                    "SCENARIO RB verdict role=%s pass=%d sid='%s' bags=%d inBags='%s' total=%d",
+                    isHost_ ? "host" : "join", passed_ ? 1 : 0, sid_[0] ? sid_ : "(none)",
+                    bags_, cd, total);
+                b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    virtual bool passed() const { return passed_; }
+
+private:
+    enum { BAGS_MAX = 4 };
+    static const int           WANT[2];          // same placements as inv_nested_bag
+    static const unsigned long S1_HOST_DURATION_MS = 45000; // room for the transfer
+    static const unsigned long S1_JOIN_DURATION_MS = 43000;
+    static const unsigned long S2_DURATION_MS      = 30000;
+
+    bool ready() const { return have_ && sid_[0] && bags_ >= 1; }
+
+    // Mirrors of InvNestedBagScenario's private helpers (deliberate: the proven
+    // class above is left byte-untouched; keep the two implementations in step).
+    static void rbSortAsc(int* a, int n) {
+        for (int i = 1; i < n; ++i)
+            for (int j = i; j > 0 && a[j] < a[j - 1]; --j) { int t = a[j]; a[j] = a[j - 1]; a[j - 1] = t; }
+    }
+    static void rbDist(const int* a, int n, char* out, unsigned int len) {
+        out[0] = '\0';
+        for (int i = 0; i < n; ++i) {
+            char one[24];
+            _snprintf(one, sizeof(one) - 1, (i == 0) ? "%d" : ",%d", a[i]);
+            one[sizeof(one) - 1] = '\0';
+            if (strlen(out) + strlen(one) + 1 >= len) break;
+            strcat(out, one);
+        }
+    }
+    static bool rbFindBagCarrier(GameWorld* gw, unsigned int out[5], char* outSid,
+                                 unsigned int outLen, unsigned int* outType) {
+        EntityState sq[32];
+        unsigned int n = engine::captureSquad(gw, /*leaderOnly*/ false, sq, 32);
+        for (unsigned int i = 0; i < n; ++i) {
+            unsigned int h[5] = { sq[i].hType, sq[i].hContainer, sq[i].hContainerSerial,
+                                  sq[i].hIndex, sq[i].hSerial };
+            InvItemEntry ent[INV_ITEMS_MAX];
+            unsigned int ni = engine::captureContainerContents(gw, h, ent, INV_ITEMS_MAX, 0);
+            for (unsigned int k = 0; k < ni; ++k) {
+                if (!engine::isContainerItemType(ent[k].itemType)) continue;
+                for (int j = 0; j < 5; ++j) out[j] = h[j];
+                strncpy(outSid, ent[k].stringID, outLen - 1); outSid[outLen - 1] = '\0';
+                if (outType) *outType = ent[k].itemType;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool          passed_, have_, isHost_, stage1_;
+    unsigned int  type_, bagType_;
+    int           step_;
+    int           bags_;
+    bool          saveOk_;
+    int           base_[BAGS_MAX], cur_[BAGS_MAX], added_[BAGS_MAX];
+    unsigned long lastLogMs_;
+    unsigned int  hand_[5];
+    char          sid_[48];
+    char          bagSid_[48];
+
+    static const char* const SAVE_NAME;
+};
+const int RejoinBagScenario::WANT[2] = { 2, 1 };
+const char* const RejoinBagScenario::SAVE_NAME = "coopresume";
+
 // inv_dump_all: the player's ACTUAL workflow, which is a burst rather than the one-item round
 // trip every other gear gate exercises - dump a character's ENTIRE kit on the ground at once and
 // hoover all of it up with a second character. That difference is what the previous gates missed,
@@ -2558,6 +2781,10 @@ Scenario* makeInventoryScenario(const std::string& name) {
     // recovery (re-home a same-sid free ground item at the pickup location).
     if (name == "inv_regear_forget")      return new InventoryRegearScenario("inv_regear_forget");
     if (name == "inv_nested_bag") return new InvNestedBagScenario();
+    // Issue #61: the nested bag above, taken through a coordinated save + a FULL
+    // restart of both clients (scripts/rejoin_bag_test.ps1 drives the stages).
+    if (name == "rejoin_bag_stage1") return new RejoinBagScenario(/*stage1=*/true);
+    if (name == "rejoin_bag")        return new RejoinBagScenario(/*stage1=*/false);
     // The burst the one-item gates above cannot express: a whole kit dumped at once and hoovered
     // up by a single character, which is how the player drives it and where the tick-denominated
     // track retirement and the top-level-only drop mirror both showed.

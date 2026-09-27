@@ -374,6 +374,8 @@ $diagSpec = @{
     inv_regear_forget = @{ KENSHICOOP_INV_SYNC = '1'; KENSHICOOP_WORLD_SYNC = '1' }
     world_item_burst = @{ KENSHICOOP_WORLD_SYNC = '1' }
     inv_nested_bag  = @{ KENSHICOOP_INV_SYNC = '1'; KENSHICOOP_WORLD_SYNC = '1' }
+    rejoin_bag_stage1 = @{ KENSHICOOP_INV_SYNC = '1'; KENSHICOOP_WORLD_SYNC = '1' }
+    rejoin_bag      = @{ KENSHICOOP_INV_SYNC = '1'; KENSHICOOP_WORLD_SYNC = '1' }
     inv_dump_all    = @{ KENSHICOOP_INV_SYNC = '1'; KENSHICOOP_WORLD_SYNC = '1' }
     inv_dump_all_forget = @{ KENSHICOOP_INV_SYNC = '1'; KENSHICOOP_WORLD_SYNC = '1' }
     inv_dump_all_transient = @{ KENSHICOOP_INV_SYNC = '1'; KENSHICOOP_WORLD_SYNC = '1' }

@@ -248,6 +248,7 @@ function Invoke-OneOracle {
         "world_item_burst" { return (Test-WorldItemBurst -HostFile $HostLog -JoinFile $JoinLog) }
         "world_item_stale" { return (Test-WorldItemStale -HostFile $HostLog -JoinFile $JoinLog) }
         "nested_bag"    { return (Test-NestedBag       -HostFile $HostLog -JoinFile $JoinLog) }
+        "rejoin_bag"    { return (Test-RejoinBag       -HostFile $HostLog -JoinFile $JoinLog) }
         "dump_all"      { return (Test-DumpAll         -HostFile $HostLog -JoinFile $JoinLog) }
         "no_phantom_pickups" { return (Test-NoPhantomPickups -HostFile $HostLog -JoinFile $JoinLog) }
         "weapon_loot"   { return (Test-WeaponLoot      -HostFile $HostLog -JoinFile $JoinLog) }

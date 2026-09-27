@@ -2322,6 +2322,34 @@
             Advisory = @('smoothness', 'anim_truth', 'march')
             Tier = 'smoke'; WanVariant = $false
         }
+        # rejoin_bag_stage1 (issue #61): stage 1 of scripts/rejoin_bag_test.ps1 (not a
+        # tier member - the two-stage wrapper drives it, like save_stage1). The
+        # inv_nested_bag script VERBATIM (same NEST lines, so nested_bag gates it
+        # unchanged) PLUS one coordinated save 'coopresume' at 25 s, so the bag and
+        # its contents bake into the shared save (save_sync gates the transfer).
+        rejoin_bag_stage1 = @{
+            DiagEnv = @{ KENSHICOOP_INV_SYNC = '1'; KENSHICOOP_WORLD_SYNC = '1'
+                         KENSHICOOP_INV_DUMP = '1' }
+            Save = 'squad2'; Setup = ''; Tolerance = 6.0
+            PrimaryGate = 'nested_bag'
+            Gating   = @('nested_bag', 'save_sync', 'clock_sync')
+            Advisory = @('smoothness', 'anim_truth', 'march')
+            Tier = 'none'; WanVariant = $false
+        }
+        # rejoin_bag: stage 2 (not a tier member). Both clients relaunch on the
+        # save the stage-1 transfer delivered (NO harness mirroring - the join
+        # loads what the TRANSFER wrote) and census the same bag for 30 s. The
+        # rejoin_bag oracle gates presence on BOTH sides plus host==join parity
+        # (parity IS the no-loss/no-dupe proof) and the top-level churn check.
+        rejoin_bag = @{
+            DiagEnv = @{ KENSHICOOP_INV_SYNC = '1'; KENSHICOOP_WORLD_SYNC = '1'
+                         KENSHICOOP_INV_DUMP = '1' }
+            Save = 'coopresume'; Setup = ''; Tolerance = 6.0
+            PrimaryGate = 'rejoin_bag'
+            Gating   = @('rejoin_bag', 'clock_sync')
+            Advisory = @('smoothness', 'anim_truth', 'march')
+            Tier = 'none'; WanVariant = $false
+        }
         # The player's actual workflow: dump a character's ENTIRE kit at once and hoover all of it
         # up with a second character. The one-item gates above pass on a trickle and cannot see
         # what a burst does - a ground track retired ~25 ms after its own drop (the read budget was
