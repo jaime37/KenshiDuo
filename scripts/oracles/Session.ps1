@@ -817,3 +817,104 @@ function Test-MoneyPersist {
                 -Metrics @{ expect = $expect; hostPost = $hostPost; joinPost = $joinPost } -Detail $detail)
 }
 
+
+# save_squadmeta (issue #74-F1, both stages of save_squadmeta_test.ps1): squad
+# display names, the player faction name and the permajob queues (the save's
+# pjobT# entries) must survive a coordinated save + full restart - for BOTH
+# authors. The scenario logs one verdict per side; stage 1 gates the setup
+# (each client's OWN mutation took locally; the host's save went out), stage 2
+# gates persistence against the known constants, per authored datum. The
+# per-leg breakdown is the root-cause read: host-authored legs green with
+# join-authored legs red is "join-authored state never reaches the host's
+# save" (the rejoin_bag/MP-P-18 class); everything red would be an independent
+# "the host never serializes names/jobs" bug. This gate also adds the one
+# cross-client property: the LAST census of both clients must agree (parity IS
+# the no-divergence proof after the reload).
+function Test-SaveSquadMeta {
+    param([string]$HostFile, [string]$JoinFile)
+    $why = @()
+    $rx1 = "SCENARIO SM verdict1 role=(host|join) pass=(\d) rename=(\d) fac=(\d) job=(\d) jobBefore=(-?\d+) jobAfter=(-?\d+) save=(\d)"
+    $rx2 = "SCENARIO SM verdict role=(host|join) pass=(\d) nameHost=(\d) nameJoin=(\d) facOk=(\d) jobHost=(\d) jobJoin=(\d) nplats=(-?\d+)"
+    $read = {
+        param($file, $role, $rx, $nGroups)
+        if (-not (Test-Path $file)) { return $null }
+        $m = Select-String -Path $file -Pattern $rx -ErrorAction SilentlyContinue |
+             Where-Object { $_.Matches[0].Groups[1].Value -eq $role } | Select-Object -Last 1
+        if ($null -eq $m) { return $null }
+        $vals = @()
+        for ($i = 2; $i -le $nGroups; ++$i) { $vals += $m.Matches[0].Groups[$i].Value }
+        return $vals
+    }
+
+    # Which stage is this log pair? (each run emits exactly one verdict kind)
+    $h1 = & $read $HostFile 'host' $rx1 8
+    $h2 = & $read $HostFile 'host' $rx2 8
+    $stage = if ($null -ne $h2) { 2 } elseif ($null -ne $h1) { 1 } else { 0 }
+    if ($stage -eq 0) {
+        Write-Host "  SAVE-SQUADMETA FAIL - no SM verdict in the host log (neither stage)"
+        return (Add-GateResult -Name "save_squadmeta" -Status "FAIL" `
+                    -Metrics @{ stage = 0 } -Detail "no SM verdict lines")
+    }
+
+    if ($stage -eq 1) {
+        $j1 = & $read $JoinFile 'join' $rx1 8
+        foreach ($side in @(@('host', $h1), @('join', $j1))) {
+            $role = $side[0]; $v = $side[1]
+            if ($null -eq $v) { $why += "no SM verdict1 in the $role log"; continue }
+            $pass = ([int]$v[0] -eq 1)
+            Write-Host ("  SAVE-SQUADMETA [$role] stage1 " + $(if ($pass) { "PASS" } else { "FAIL" }) +
+                        " - rename=$($v[1]) fac=$($v[2]) job=$($v[3]) (jobs $($v[4]) -> $($v[5])) save=$($v[6])")
+            if (-not $pass) { $why += "$role stage-1 setup leg FAIL (rename=$($v[1]) fac=$($v[2]) job=$($v[3]) save=$($v[6])) - the scenario failed to set the bug up, not the bug itself" }
+        }
+    } else {
+        $j2 = & $read $JoinFile 'join' $rx2 8
+        foreach ($side in @(@('host', $h2), @('join', $j2))) {
+            $role = $side[0]; $v = $side[1]
+            if ($null -eq $v) { $why += "no SM verdict in the $role log"; continue }
+            $pass = ([int]$v[0] -eq 1)
+            Write-Host ("  SAVE-SQUADMETA [$role] " + $(if ($pass) { "PASS" } else { "FAIL" }) +
+                        " - nameHost=$($v[1]) nameJoin=$($v[2]) facOk=$($v[3]) jobHost=$($v[4]) jobJoin=$($v[5]) nplats=$($v[6])")
+            if (-not $pass) {
+                $hostLegs = ([int]$v[1] -eq 1) -and ([int]$v[4] -eq 1)
+                $joinLegs = ([int]$v[2] -eq 1) -and ([int]$v[3] -eq 1) -and ([int]$v[5] -eq 1)
+                $read2 = if ($hostLegs -and -not $joinLegs) {
+                    "HOST-authored state survived and JOIN-authored state did not - the join's names/faction/jobs never entered the host's serialized save (the rejoin_bag/MP-P-18 root class)"
+                } elseif (-not $hostLegs) {
+                    "even HOST-authored names/jobs were wiped - an independent serialization bug, NOT the join-authored root"
+                } else { "mixed leg failure" }
+                $why += "$role lost squad meta across the save+restart: $read2"
+            }
+        }
+    }
+
+    # Parity: the last census row of each client must carry the same faction
+    # name and the same platoon set (entries sorted - order is sid-stable, but
+    # the sort makes the compare robust to any enumeration wobble).
+    $cenRx = "SCENARIO SM (?:HOST|JOIN) t=\d+ fac='([^']*)' plats='([^']*)'"
+    $cen = {
+        param($file)
+        if (-not (Test-Path $file)) { return $null }
+        $m = Select-String -Path $file -Pattern $cenRx -ErrorAction SilentlyContinue | Select-Object -Last 1
+        if ($null -eq $m) { return $null }
+        $plats = @($m.Matches[0].Groups[2].Value -split ';' | Sort-Object) -join ';'
+        return @($m.Matches[0].Groups[1].Value, $plats)
+    }
+    $hc = & $cen $HostFile; $jc = & $cen $JoinFile
+    $parity = -1
+    if ($null -ne $hc -and $null -ne $jc) {
+        $parity = if ($hc[0] -eq $jc[0] -and $hc[1] -eq $jc[1]) { 1 } else { 0 }
+        if ($parity -eq 0) {
+            $why += "final census diverged (host fac='$($hc[0])' plats='$($hc[1])' vs join fac='$($jc[0])' plats='$($jc[1])')"
+        } else {
+            Write-Host "  SAVE-SQUADMETA parity: final censuses identical (fac='$($hc[0])')"
+        }
+    } else {
+        $why += "no SM census rows to compare parity on"
+    }
+
+    $v = if ($why.Count -eq 0) { "PASS" } else { "FAIL" }
+    $detail = $why -join "; "
+    Write-Host "  SAVE-SQUADMETA $v - stage=$stage $detail"
+    return (Add-GateResult -Name "save_squadmeta" -Status $v `
+                -Metrics @{ stage = $stage; parity = $parity } -Detail $detail)
+}

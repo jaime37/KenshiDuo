@@ -163,6 +163,7 @@ function Invoke-OneOracle {
         "save_probe"     { return (Test-SaveProbe      -HostFile $HostLog -JoinFile $JoinLog) }
         "load_probe"     { return (Test-LoadProbe      -HostFile $HostLog -JoinFile $JoinLog) }
         "save_sync"      { return (Test-SaveSync       -HostFile $HostLog -JoinFile $JoinLog) }
+        "save_squadmeta" { return (Test-SaveSquadMeta  -HostFile $HostLog -JoinFile $JoinLog) }
         "save_resume"    { return (Test-SaveResume     -HostFile $HostLog -JoinFile $JoinLog) }
         "load_sync"      { return (Test-LoadSync       -HostFile $HostLog -JoinFile $JoinLog) }
         "money_persist"  { return (Test-MoneyPersist   -HostFile $HostLog -JoinFile $JoinLog) }
