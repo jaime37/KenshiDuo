@@ -1457,6 +1457,37 @@
             Tier = 'none'; WanVariant = $false
         }
 
+        # save_squadmeta_stage1 (issue #74-F1): stage 1 of
+        # scripts/save_squadmeta_test.ps1 (not a tier member - the two-stage
+        # wrapper drives it, like save_stage1). Each client mutates its OWN
+        # squad at 8 s (host: rename platoons[0] + a JOB_MEDIC permajob; join:
+        # rename platoons[1] + faction name + a JOB_MEDIC) - the issue's
+        # "what the host sets persists, what the joiner sets is wiped"
+        # asymmetry, verbatim - then one coordinated saveGameAs('coopresume')
+        # at 25 s bakes whatever the authority holds (save_sync gates the
+        # transfer; save_squadmeta gates the setup legs).
+        save_squadmeta_stage1 = @{
+            Save = 'squad2'; Setup = ''; Tolerance = 6.0
+            PrimaryGate = 'save_squadmeta'
+            Gating   = @('save_squadmeta', 'save_sync', 'clock_sync')
+            Advisory = @('smoothness', 'anim_truth', 'march')
+            Tier = 'none'; WanVariant = $false
+        }
+
+        # save_squadmeta: stage 2 (not a tier member). Both clients relaunch on
+        # the save the stage-1 transfer delivered (NO harness mirroring - the
+        # join loads what the TRANSFER wrote) and the verdict checks the
+        # mutated squad/faction names and permajob queues against the KNOWN
+        # stage-1 constants, per authored datum. Host legs green + join legs
+        # red is the issue's root; the oracle adds host==join census parity.
+        save_squadmeta = @{
+            Save = 'coopresume'; Setup = ''; Tolerance = 6.0
+            PrimaryGate = 'save_squadmeta'
+            Gating   = @('save_squadmeta', 'clock_sync')
+            Advisory = @('smoothness', 'anim_truth', 'march')
+            Tier = 'none'; WanVariant = $false
+        }
+
         # load_probe: coordinated-load phase-13a diagnostic (protocol 32 -
         # load detour installed for edge logging, NO load coordination;
         # saveSync stays ON so the join holds an identical copy first). The

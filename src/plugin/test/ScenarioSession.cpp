@@ -7,6 +7,17 @@
 
 #include "ScenarioSupport.h"
 
+// Faction.h pulls <boost/thread/shared_mutex.hpp>, whose auto-link pragma would
+// demand libboost_thread (no code from it is used - same guard as
+// EngineInternal.h).
+#define BOOST_ALL_NO_LIB 1
+#define BOOST_ERROR_CODE_HEADER_ONLY 1
+#define BOOST_SYSTEM_NO_DEPRECATED 1
+
+#include <kenshi/PlayerInterface.h>
+#include <kenshi/Platoon.h>
+#include <kenshi/Faction.h>
+
 namespace coop {
 namespace {
 
@@ -1338,6 +1349,306 @@ private:
 };
 const char* const MoneyPersistScenario::SAVE_NAME = "coopresume";
 
+// save_squadmeta (issue #74-F1): every coop save/load cycle the JOIN's squad
+// display names revert to IDs, the player faction name reverts to "Nameless"
+// and the permajob queues (the save's pjobT# entries) come back almost empty
+// (390 -> 5/0). The reporter's asymmetry is the design: what the HOST authors
+// survives the coordinated save, what the JOIN authors is wiped every cycle.
+// This cycle replays exactly that, end to end:
+//   stage 1 (save_squadmeta_stage1, save squad2): both clients mutate their
+//     OWN squad at 8 s - the host renames platoons[0] 'MP-Host-Squad' and
+//     enqueues a JOB_MEDIC permajob on one of its characters; the join renames
+//     platoons[1] 'MP-Join-Squad', sets the shared faction name
+//     'MP-Join-Faction' and enqueues its own JOB_MEDIC. Platoons are sorted by
+//     stringID, which is save-stable, so both clients (and both stages) agree
+//     on which platoon is whose. A 2 s census logs what EACH side actually
+//     sees (replication of the other side's rename is itself the evidence).
+//     The host issues the coordinated saveGameAs('coopresume') at 25 s (the
+//     save_sync oracle gates the transfer off the plugin's [save] lines).
+//   stage 2 (save_squadmeta, save coopresume): both clients relaunch on the
+//     transferred save and the verdict checks the mutated state against the
+//     KNOWN constants (no cross-run parsing: the pre-save values are baked
+//     into the scenario). The per-leg breakdown (nameHost/nameJoin/facOk/
+//     jobHost/jobJoin) reads the verdict straight off the log: host legs
+//     green + join legs red is the join-authored-state-never-reaches-the-
+//     host's-save root (same class as rejoin_bag/MP-P-18); all legs red would
+//     be an independent "the host never serializes names/jobs" bug.
+// The engine surface (ActivePlatoon::setName/getName, Faction::setName/
+// getName + PlayerInterface::factionName, Character::addJob/getPermajob*) is
+// read/written through the small SEH-guarded shims below - nothing in the
+// plugin had ever observed this state before (no squad-name/job probe exists).
+namespace smeta {
+struct SmPlat {
+    std::string    sid;
+    std::string    name;
+    int            jobs;
+    int            medic;
+    ActivePlatoon* ap;
+    Character*     firstChar;
+};
+enum { PLATS_MAX = 4, PLATS_STR = 420, FAC_STR = 96 };
+
+// Raw engine walk (NO SEH here - std::string locals and __try do not mix,
+// C2712; the guards below keep POD locals only). Platoons of the local
+// playerCharacters, sorted by stringID; jobs/medic are per-platoon permajob
+// totals; facOut receives the player faction's display name.
+static int collectRaw(GameWorld* gw, SmPlat* out, int maxOut,
+                      char* facOut, unsigned int facCap) {
+    facOut[0] = '\0';
+    if (!gw || !gw->player) return 0;
+    Faction* f = gw->player->getFaction();
+    if (f) {
+        const std::string& fn = f->getName();
+        strncpy(facOut, fn.c_str(), facCap - 1);
+        facOut[facCap - 1] = '\0';
+    }
+    const lektor<Character*>& pcs = gw->player->playerCharacters;
+    int n = 0;
+    for (unsigned int i = 0; i < pcs.size(); ++i) {
+        Character* c = pcs[i];
+        if (!c) continue;
+        ActivePlatoon* ap = c->getPlatoon();
+        if (!ap || !ap->me) continue;
+        const std::string& sid = ap->me->stringID;
+        int k = -1;
+        for (int j = 0; j < n; ++j) if (out[j].sid == sid) { k = j; break; }
+        if (k < 0) {
+            if (n >= maxOut) continue;
+            k = n++;
+            out[k].sid = sid;
+            out[k].name = ap->getName();
+            out[k].jobs = 0; out[k].medic = 0;
+            out[k].ap = ap; out[k].firstChar = c;
+        }
+        int jc = c->getPermajobCount();
+        if (jc < 0) jc = 0;
+        if (jc > 32) jc = 32;
+        out[k].jobs += jc;
+        for (int s = 0; s < jc; ++s)
+            if (c->getPermajob(s) == JOB_MEDIC) ++out[k].medic;
+    }
+    for (int i = 1; i < n; ++i)
+        for (int j = i; j > 0 && out[j].sid < out[j - 1].sid; --j) {
+            SmPlat t = out[j]; out[j] = out[j - 1]; out[j - 1] = t;
+        }
+    return n;
+}
+static int collect(GameWorld* gw, SmPlat* out, int maxOut,
+                   char* facOut, unsigned int facCap) {
+    int n = -1;
+    __try { n = collectRaw(gw, out, maxOut, facOut, facCap); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { n = -1; }
+    return n;
+}
+static void renameRaw(ActivePlatoon* ap, const char* name) {
+    ap->setName(std::string(name));
+}
+static bool renamePlat(ActivePlatoon* ap, const char* name) {
+    bool ok = false;
+    __try { if (ap) { renameRaw(ap, name); ok = true; } }
+    __except (EXCEPTION_EXECUTE_HANDLER) { ok = false; }
+    return ok;
+}
+static void setFacRaw(GameWorld* gw, const char* name) {
+    Faction* f = gw->player->getFaction();
+    if (f) f->setName(std::string(name));
+    gw->player->factionName = name; // the PlayerInterface mirror the UI reads
+}
+static bool setFaction(GameWorld* gw, const char* name) {
+    bool ok = false;
+    __try { if (gw && gw->player) { setFacRaw(gw, name); ok = true; } }
+    __except (EXCEPTION_EXECUTE_HANDLER) { ok = false; }
+    return ok;
+}
+static void addJobRaw(Character* c) {
+    // shift=true is the engine's own permajob flag (the UI's shift+click);
+    // JOB_MEDIC needs no subject object.
+    c->addJob(JOB_MEDIC, 0, true, false, c->getPosition());
+}
+static int jobCount(Character* c) {
+    int n = -1;
+    __try { if (c) n = c->getPermajobCount(); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { n = -1; }
+    return n;
+}
+static bool addJob(Character* c) {
+    bool ok = false;
+    __try { if (c) { addJobRaw(c); ok = true; } }
+    __except (EXCEPTION_EXECUTE_HANDLER) { ok = false; }
+    return ok;
+}
+// '<sid>=<name>#j<jobs>m<medic>;...' with the oracle-hostile characters
+// squashed out of the display names.
+static void platsStr(const SmPlat* p, int n, char* out, unsigned int len) {
+    out[0] = '\0';
+    for (int i = 0; i < n; ++i) {
+        std::string nm = p[i].name;
+        for (size_t c = 0; c < nm.size(); ++c)
+            if (nm[c] == '\'' || nm[c] == ';' || nm[c] == '#') nm[c] = '_';
+        char one[180];
+        _snprintf(one, sizeof(one) - 1, (i == 0) ? "%s=%s#j%dm%d" : ";%s=%s#j%dm%d",
+                  p[i].sid.c_str(), nm.c_str(), p[i].jobs, p[i].medic);
+        one[sizeof(one) - 1] = '\0';
+        if (strlen(out) + strlen(one) + 1 >= len) break;
+        strcat(out, one);
+    }
+}
+} // namespace smeta
+
+class SaveSquadMetaScenario : public TimedScenario {
+public:
+    explicit SaveSquadMetaScenario(bool stage1)
+        : TimedScenario(stage1 ? "save_squadmeta_stage1" : "save_squadmeta",
+                        /*evidenceMs=*/2000),
+          isHost_(false), stage1_(stage1), nplats_(0), myPlat_(-1),
+          didMutate_(false), renameOk_(false), facOk_(false),
+          jobBefore_(-1), jobAfter_(-1), jobAdded_(false),
+          saveIssued_(false), saveOk_(false) {}
+
+    virtual void onStart(const ScenarioContext& ctx) {
+        isHost_ = ctx.isHost;
+        char fac[smeta::FAC_STR];
+        nplats_ = smeta::collect(ctx.gw, plats_, smeta::PLATS_MAX, fac, sizeof(fac));
+        myPlat_ = pickMyPlat();
+        char pd[smeta::PLATS_STR];
+        smeta::platsStr(plats_, nplats_ > 0 ? nplats_ : 0, pd, sizeof(pd));
+        char b[560];
+        _snprintf(b, sizeof(b) - 1,
+                  "SCENARIO SM anchor host=%d stage=%d nplats=%d myPlat=%d fac='%s' plats='%s'",
+                  isHost_ ? 1 : 0, stage1_ ? 1 : 2, nplats_, myPlat_, fac, pd);
+        b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+    }
+
+    virtual bool onTick(const ScenarioContext& ctx) {
+        // Stage 1, both sides @8s: each client mutates ITS OWN squad (and the
+        // join the shared faction) - the issue's asymmetry, verbatim.
+        if (stage1_ && !didMutate_ && ctx.elapsedMs >= MUTATE_AT_MS) {
+            didMutate_ = true;
+            char fac[smeta::FAC_STR];
+            nplats_ = smeta::collect(ctx.gw, plats_, smeta::PLATS_MAX, fac, sizeof(fac));
+            myPlat_ = pickMyPlat();
+            if (myPlat_ >= 0) {
+                renameOk_ = smeta::renamePlat(plats_[myPlat_].ap,
+                                              isHost_ ? HOST_SQ_NAME : JOIN_SQ_NAME);
+                jobBefore_ = smeta::jobCount(plats_[myPlat_].firstChar);
+                jobAdded_ = smeta::addJob(plats_[myPlat_].firstChar);
+                jobAfter_ = smeta::jobCount(plats_[myPlat_].firstChar);
+            }
+            if (!isHost_) facOk_ = smeta::setFaction(ctx.gw, FAC_NAME);
+            char b[240];
+            _snprintf(b, sizeof(b) - 1,
+                      "SCENARIO SM DO role=%s rename=%d fac=%d jobAdd=%d jobBefore=%d jobAfter=%d t=%lu",
+                      isHost_ ? "host" : "join", renameOk_ ? 1 : 0, facOk_ ? 1 : 0,
+                      jobAdded_ ? 1 : 0, jobBefore_, jobAfter_, ctx.elapsedMs);
+            b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+        }
+
+        // Both stages, both sides: what THIS client actually sees (the other
+        // side's rename landing here - or not - is the replication evidence).
+        if (evidenceDue(ctx.elapsedMs)) {
+            char fac[smeta::FAC_STR];
+            int n = smeta::collect(ctx.gw, plats_, smeta::PLATS_MAX, fac, sizeof(fac));
+            char pd[smeta::PLATS_STR];
+            smeta::platsStr(plats_, n > 0 ? n : 0, pd, sizeof(pd));
+            char b[560];
+            _snprintf(b, sizeof(b) - 1, "SCENARIO SM %s t=%lu fac='%s' plats='%s'",
+                      isHost_ ? "HOST" : "JOIN", ctx.elapsedMs, fac, pd);
+            b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+        }
+
+        // Stage 1, HOST @25s: the renames/jobs have either replicated by now or
+        // never will - the coordinated save bakes whatever the authority holds.
+        if (stage1_ && isHost_ && !saveIssued_ && ctx.elapsedMs >= SAVE_AT_MS) {
+            saveIssued_ = true;
+            saveOk_ = engine::saveGameAs(SAVE_NAME);
+            char b[112];
+            _snprintf(b, sizeof(b) - 1, "SCENARIO SM SAVE name='%s' ok=%d t=%lu",
+                      SAVE_NAME, saveOk_ ? 1 : 0, ctx.elapsedMs);
+            b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+        }
+
+        unsigned long dur = stage1_ ? (isHost_ ? S1_HOST_DURATION_MS : S1_JOIN_DURATION_MS)
+                                    : S2_DURATION_MS;
+        if (ctx.elapsedMs >= dur) {
+            char fac[smeta::FAC_STR];
+            int n = smeta::collect(ctx.gw, plats_, smeta::PLATS_MAX, fac, sizeof(fac));
+            char pd[smeta::PLATS_STR];
+            smeta::platsStr(plats_, n > 0 ? n : 0, pd, sizeof(pd));
+            if (stage1_) {
+                // Setup leg: what I authored took locally (a stage-1 red here
+                // means the scenario failed to set the bug up, not the bug).
+                bool jobOk = (jobAfter_ > jobBefore_) ||
+                             (myPlat_ >= 0 && myPlat_ < n && plats_[myPlat_].medic >= 1);
+                bool pass = renameOk_ && jobOk &&
+                            (isHost_ ? saveOk_ : facOk_);
+                setPassed(pass);
+                char b[640];
+                _snprintf(b, sizeof(b) - 1,
+                          "SCENARIO SM verdict1 role=%s pass=%d rename=%d fac=%d "
+                          "job=%d jobBefore=%d jobAfter=%d save=%d fac='%s' plats='%s'",
+                          isHost_ ? "host" : "join", pass ? 1 : 0, renameOk_ ? 1 : 0,
+                          facOk_ ? 1 : 0, jobOk ? 1 : 0, jobBefore_, jobAfter_,
+                          saveOk_ ? 1 : 0, fac, pd);
+                b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+            } else {
+                // The persistence leg, per authored datum, against the known
+                // constants. Host-authored green + join-authored red is the
+                // issue's root; everything red would be an independent bug.
+                bool nameHost = (n >= 1) && (plats_[0].name == HOST_SQ_NAME);
+                bool nameJoin = (n >= 2) && (plats_[1].name == JOIN_SQ_NAME);
+                bool facOk    = (strcmp(fac, FAC_NAME) == 0);
+                bool jobHost  = (n >= 1) && (plats_[0].medic >= 1);
+                bool jobJoin  = (n >= 2) && (plats_[1].medic >= 1);
+                bool pass = nameHost && nameJoin && facOk && jobHost && jobJoin;
+                setPassed(pass);
+                char b[640];
+                _snprintf(b, sizeof(b) - 1,
+                          "SCENARIO SM verdict role=%s pass=%d nameHost=%d nameJoin=%d "
+                          "facOk=%d jobHost=%d jobJoin=%d nplats=%d fac='%s' plats='%s'",
+                          isHost_ ? "host" : "join", pass ? 1 : 0, nameHost ? 1 : 0,
+                          nameJoin ? 1 : 0, facOk ? 1 : 0, jobHost ? 1 : 0,
+                          jobJoin ? 1 : 0, n, fac, pd);
+                b[sizeof(b) - 1] = '\0'; coop::logLine(b);
+            }
+            return true;
+        }
+        return false;
+    }
+
+private:
+    static const unsigned long MUTATE_AT_MS        = 8000;
+    static const unsigned long SAVE_AT_MS          = 25000;
+    static const unsigned long S1_HOST_DURATION_MS = 45000; // room for the transfer
+    static const unsigned long S1_JOIN_DURATION_MS = 43000;
+    static const unsigned long S2_DURATION_MS      = 30000;
+
+    // The host owns platoons[0], the join platoons[1] (stringID order is
+    // save-stable, so both clients and both stages agree). A one-platoon save
+    // degrades to both mutating the same squad - logged, and the stage-2
+    // constants simply cannot all hold.
+    int pickMyPlat() const {
+        if (nplats_ >= 2) return isHost_ ? 0 : 1;
+        return (nplats_ >= 1) ? 0 : -1;
+    }
+
+    bool         isHost_, stage1_;
+    int          nplats_, myPlat_;
+    bool         didMutate_, renameOk_, facOk_;
+    int          jobBefore_, jobAfter_;
+    bool         jobAdded_;
+    bool         saveIssued_, saveOk_;
+    smeta::SmPlat plats_[smeta::PLATS_MAX];
+
+    static const char* const SAVE_NAME;
+    static const char* const HOST_SQ_NAME;
+    static const char* const JOIN_SQ_NAME;
+    static const char* const FAC_NAME;
+};
+const char* const SaveSquadMetaScenario::SAVE_NAME    = "coopresume";
+const char* const SaveSquadMetaScenario::HOST_SQ_NAME = "MP-Host-Squad";
+const char* const SaveSquadMetaScenario::JOIN_SQ_NAME = "MP-Join-Squad";
+const char* const SaveSquadMetaScenario::FAC_NAME     = "MP-Join-Faction";
+
 } // namespace
 
 Scenario* makeSessionScenario(const std::string& name) {
@@ -1350,6 +1661,8 @@ Scenario* makeSessionScenario(const std::string& name) {
     if (name == "load_probe")     return new LoadProbeScenario();
     if (name == "load_sync")      return new LoadSyncScenario();
     if (name == "money_persist")  return new MoneyPersistScenario();
+    if (name == "save_squadmeta_stage1") return new SaveSquadMetaScenario(/*stage1=*/true);
+    if (name == "save_squadmeta")        return new SaveSquadMetaScenario(/*stage1=*/false);
     return 0;
 }
 
