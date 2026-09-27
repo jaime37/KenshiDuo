@@ -767,6 +767,22 @@
             Advisory = @('mint_aggro', 'smoothness', 'anim_truth', 'march', 'combat_snap_rate', 'lifecycle', 'mint_dist')
             Tier = 'full'; WanVariant = $false
         }
+        # npc_aggro: mint_aggro's exact script with the OTHER half of issue #54
+        # gated - not where the fight happens, but WHETHER it happens. Same
+        # hostile AI-intact squad closed onto the join's characters, nothing of
+        # ours ordering anything; the gate is the owner's AI emitting the combat
+        # order (fight 0->1 transition in the host log) within 30 s of the
+        # close, observable in the join log within 8 s. No DiagEnv: the defaults
+        # (aiSuspend + censusFreezeAi ON) are exactly the config in the issue's
+        # own log. The raced sampling parity stays mint_aggro's advisory; this
+        # gate reads transitions, not sample agreement.
+        npc_aggro = @{
+            Save = 'sync'; Setup = ''; Tolerance = 18.0
+            PrimaryGate = 'npc_aggro'
+            Gating   = @('npc_aggro', 'clock_sync')
+            Advisory = @('mint_aggro', 'proxy_drift', 'smoothness', 'anim_truth', 'march', 'combat_snap_rate', 'lifecycle', 'mint_dist')
+            Tier = 'full'; WanVariant = $false
+        }
         # player_ko: players as VICTIMS both directions - scaffold KO + revive on
         # each side's OWN member; edges must cross as reliable EVT_KNOCKOUT/EVT_REVIVE
         # and the peer's driven copy must lie down / stand up.
@@ -1941,6 +1957,24 @@
             Advisory = @('existence_parity', 'anti_zombie', 'lifecycle',
                          'suppress_churn', 'smoothness', 'anim_truth', 'march')
             Tier = 'probe'; WanVariant = $false
+        }
+
+        # existence_gate: existence_parity PROMOTED to a gate, on a BAKED
+        # hostile population (issues #34/#54: NPCs that exist on one client
+        # and not the other). split_far keeps the oracle advisory because that
+        # scenario exists to EXPOSE emergent ghosts; here the 'camp' prison
+        # save bakes a dense Holy Nation garrison + slave population and both
+        # squads watch it co-located, so a sustained ghost is exigible absent,
+        # not exposed. Same passive-soak body as world_parity with a ~60 s
+        # steady window: the join's 5 s [audit] exist series (fresh census
+        # only) must show no persistent ghost population and zero dormPc (a
+        # body beside a player character the gate stopped reconciling).
+        existence_gate = @{
+            Save = 'camp'; Setup = ''; Tolerance = 6.0
+            PrimaryGate = 'existence_parity'
+            Gating   = @('existence_parity', 'clock_sync')
+            Advisory = @('lifecycle', 'suppress_churn', 'anti_zombie', 'smoothness')
+            Tier = 'full'; WanVariant = $false
         }
 
         # speed_sync: consensus game-speed (pause/1x/2x/3x). Scenario-simulated

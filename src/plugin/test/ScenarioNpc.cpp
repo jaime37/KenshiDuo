@@ -938,6 +938,14 @@ public:
     explicit WorldParityScenario(const char* name) : name_(name), passed_(false) {
         if (std::string(name) == "jail_soak") {
             hostDur_ = 570000; joinDur_ = 560000;   // long-play soak (~9.5 min)
+        } else if (std::string(name) == "existence_gate") {
+            // ~60 s of steady co-located watching: the 5 s [audit] exist
+            // series yields ~10 fresh-census samples (Test-ExistenceParity
+            // needs >= 4) on a baked population. Must fit the runner's 120 s
+            // self-exit MINUS the worst-case 45 s arm wait (run 20260927_143530:
+            // host arm hit the 45 s timeout, a 90 s window died 15 s short of
+            // its SCENARIO RESULT), so host 65 s leaves ~10 s of margin.
+            hostDur_ = 65000; joinDur_ = 55000;
         } else {
             hostDur_ = 180000; joinDur_ = 160000;   // parity/spike window
         }
@@ -978,6 +986,7 @@ Scenario* makeNpcScenario(const std::string& name) {
     if (name == "npc_census")   return new NpcCensusScenario();
     if (name == "spawn_far")    return new SpawnFarScenario();
     if (name == "world_parity") return new WorldParityScenario("world_parity");
+    if (name == "existence_gate") return new WorldParityScenario("existence_gate");
     if (name == "jail_probe")   return new WorldParityScenario("jail_probe");
     if (name == "jail_soak")    return new WorldParityScenario("jail_soak");
     return 0;
