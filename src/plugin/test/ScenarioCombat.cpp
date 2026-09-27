@@ -2199,6 +2199,7 @@ Scenario* makeCombatScenario(const std::string& name) {
     if (name == "assault_travel") return new AssaultTravelScenario("assault_travel", false);
     if (name == "assault_mint")   return new AssaultTravelScenario("assault_mint", true);
     if (name == "mint_aggro")     return new AssaultTravelScenario("mint_aggro", true, true);
+    if (name == "npc_aggro")      return new AssaultTravelScenario("npc_aggro", true, true);
     if (name == "player_ko")    return new PlayerKoScenario();
     if (name == "combat_crowd") return new CombatCrowdScenario();
     if (name == "combat_battle") return new CombatBattleScenario();

@@ -611,6 +611,110 @@ function Test-MintAggro {
     return (Add-GateResult -Name 'mint_aggro' -Status PASS -Metrics $m)
 }
 
+# npc_aggro: mint_aggro's exact script with a DIFFERENT question gated (issue
+# #54: "NPCs stand in lines until directly attacked" with both players in the
+# same region). Not the sampling-raced fight parity - whether the OWNER's AI
+# emits the combat order at all, and whether both screens see it:
+#   1. spawned - the host put a hostile, AI-intact squad out there (marker)
+#   2. closed  - the host set it down beside the join's characters (marker,
+#                and the t=0 of the aggro window)
+#   3. minted  - the join created the bodies locally (no local copy at load)
+#   4. quiet   - NO attack was ordered by the scenario (a player-authored
+#                fight proves nothing here)
+#   5. aggro   - the GATE: some enemy hand shows a fight 0->1 TRANSITION in the
+#                host log within AggroWindowMs of the close. The owner (host)
+#                runs that body's AI, so this is the AI's own combat order,
+#                not an answer to one of ours.
+#   6. cross   - the same canonical hand reads fight=1 in the JOIN log within
+#                CrossTolMs: the transition is observable on both screens.
+# Windows: 1 Hz sampling both ends + clock skew -> CrossTolMs 8000; Kenshi's
+# hostile AI spots a squad standing 12 u away in seconds, so 30 s is generous.
+function Test-NpcAggro {
+    param([string]$HostFile, [string]$JoinFile,
+          [int]$AggroWindowMs = 30000, [int]$CrossTolMs = 8000)
+    $spawned = @(Select-String -Path $HostFile -Pattern 'SCENARIO TRAVELFIGHT enemy spawned n=(\d+)' -ErrorAction SilentlyContinue)
+    $rxClose = '\[(\d\d):(\d\d):(\d\d)\.(\d\d\d)\].*SCENARIO TRAVELFIGHT enemy closed n=(\d+)'
+    $closed  = @(Select-String -Path $HostFile -Pattern $rxClose -ErrorAction SilentlyContinue)
+    $issued  = @(Select-String -Path $JoinFile -Pattern 'SCENARIO TRAVELFIGHT issued atk=' -ErrorAction SilentlyContinue)
+    $minted  = @(Select-String -Path $JoinFile -Pattern '\[spawn\] proxy BOUND hand=' -ErrorAction SilentlyContinue).Count
+    $nSpawn = if ($spawned.Count -ge 1) { [int]$spawned[0].Matches[0].Groups[1].Value } else { 0 }
+    $nClose = if ($closed.Count -ge 1) { [int]$closed[0].Matches[0].Groups[5].Value } else { 0 }
+    $closeT = if ($closed.Count -ge 1) {
+        Convert-StampToMs -Groups $closed[0].Matches[0].Groups -OffsetMs (Get-LogClockOffsetMs -File $HostFile)
+    } else { $null }
+
+    # Per-hand fight series from both logs, in the host clock frame.
+    $rx = '\[(\d\d):(\d\d):(\d\d)\.(\d\d\d)\].*SCENARIO TRAVELFIGHT enemystate canon=(\d+,\d+) fight=(\d)'
+    $series = @{}
+    foreach ($pair in @(@($HostFile, 'host'), @($JoinFile, 'join'))) {
+        $file = $pair[0]; $role = $pair[1]
+        $off = Get-LogClockOffsetMs -File $file
+        foreach ($m in (Select-String -Path $file -Pattern $rx -ErrorAction SilentlyContinue)) {
+            $g = $m.Matches[0].Groups
+            $key = "$($g[5].Value)|$role"
+            if (-not $series.ContainsKey($key)) { $series[$key] = New-Object System.Collections.ArrayList }
+            [void]$series[$key].Add([pscustomobject]@{
+                t = (Convert-StampToMs -Groups $g -OffsetMs $off); fight = [int]$g[6].Value })
+        }
+    }
+    # Link 5: first host-side 0->1 transition at/after the close, per hand.
+    $aggroT = $null; $aggroHand = ''
+    foreach ($key in @($series.Keys)) {
+        if (-not $key.EndsWith('|host')) { continue }
+        $rows = @($series[$key] | Sort-Object t)
+        for ($i = 1; $i -lt $rows.Count; $i++) {
+            if ($rows[$i - 1].fight -eq 0 -and $rows[$i].fight -eq 1 -and
+                ($null -eq $closeT -or $rows[$i].t -ge $closeT)) {
+                if ($null -eq $aggroT -or $rows[$i].t -lt $aggroT) {
+                    $aggroT = $rows[$i].t; $aggroHand = ($key -split '\|')[0]
+                }
+                break
+            }
+        }
+    }
+    # Link 6: the join saw the same hand fighting within the tolerance.
+    $crossMs = $null
+    if ($null -ne $aggroT -and $series.ContainsKey("$aggroHand|join")) {
+        foreach ($jr in @($series["$aggroHand|join"])) {
+            $d = [Math]::Abs([int]$jr.t - [int]$aggroT)
+            if ($jr.fight -eq 1 -and ($null -eq $crossMs -or $d -lt $crossMs)) { $crossMs = $d }
+        }
+    }
+
+    $m = @{ spawned = $nSpawn; closed = $nClose; minted = $minted; issued = $issued.Count
+            aggroHand = $aggroHand
+            aggroAfterMs = $(if ($null -ne $aggroT -and $null -ne $closeT) { [int]($aggroT - $closeT) } else { $null })
+            crossMs = $crossMs }
+    $bad = @()
+    if ($nSpawn -lt 1) { $bad += "the host never spawned the hostile squad (link 1)" }
+    elseif ($nClose -lt 1) { $bad += "the squad was never put beside the join's characters (link 2)" }
+    if ($minted -lt 1) { $bad += "the join minted nothing (link 3)" }
+    if ($issued.Count -gt 0) { $bad += "an attack WAS ordered, so any fight here is player-authored (link 4)" }
+    if ($bad.Count -eq 0) {
+        if ($null -eq $aggroT) {
+            $bad += ("the owner's AI never turned the enemy FIGHTING on the host after the close " +
+                     "(link 5: the 'stands in lines until directly attacked' report)")
+        } elseif (($aggroT - $closeT) -gt $AggroWindowMs) {
+            $bad += ("the owner's AI took $([int]($aggroT - $closeT)) ms to aggro after the close " +
+                     "(> $AggroWindowMs; link 5)")
+        } elseif ($null -eq $crossMs) {
+            $bad += ("the join never saw canon=$aggroHand fighting (link 6: the aggro never crossed)")
+        } elseif ($crossMs -gt $CrossTolMs) {
+            $bad += ("the join saw the aggro $crossMs ms off the host's transition (> $CrossTolMs; link 6)")
+        }
+    }
+    if ($bad.Count -gt 0) {
+        Write-Host ("  NPC-AGGRO FAIL - " + ($bad -join "; ") +
+                    " [spawned=$nSpawn closed=$nClose minted=$minted issued=$($issued.Count) " +
+                    "aggroHand=$aggroHand aggroAfterMs=$($m.aggroAfterMs) crossMs=$crossMs]")
+        return (Add-GateResult -Name 'npc_aggro' -Status FAIL -Metrics $m -Detail ($bad -join "; "))
+    }
+    Write-Host ("  NPC-AGGRO PASS - owner's AI aggroed $($m.aggroAfterMs) ms after the close " +
+                "(canon=$aggroHand, <= $AggroWindowMs) and the join saw it $crossMs ms off " +
+                "(<= $CrossTolMs); spawned=$nSpawn minted=$minted unprovoked")
+    return (Add-GateResult -Name 'npc_aggro' -Status PASS -Metrics $m)
+}
+
 # The largest "moved=<u>" the travel series reported in one log (cumulative path
 # length of that client's own leader, snap steps excluded by the scenario).
 function Get-TravelMoved {
